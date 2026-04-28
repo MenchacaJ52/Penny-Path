@@ -5,7 +5,7 @@ class Database:
     DB_FILE = "pennypath.db"
 
     def __init__(self):
-        self.conn = sqlite3.connect(self.DB_FILE)
+        self.conn = sqlite3.connect(self.DB_FILE, check_same_thread=False)
         self._create_tables()
 
     def _create_tables(self):
@@ -44,6 +44,15 @@ class Database:
                 amount  REAL NOT NULL DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
+            CREATE TABLE IF NOT EXISTS chat_feedback (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                question   TEXT NOT NULL,
+                response   TEXT NOT NULL,
+                reward     INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
         """)
         self.conn.commit()
         self._migrate()
@@ -55,6 +64,22 @@ class Database:
             self.conn.execute(
                 "ALTER TABLE expenses ADD COLUMN subcategory TEXT NOT NULL DEFAULT 'other'"
             )
+            self.conn.commit()
+
+        tables = [r[0] for r in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if "chat_feedback" not in tables:
+            self.conn.execute("""
+                CREATE TABLE chat_feedback (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL,
+                    question   TEXT NOT NULL,
+                    response   TEXT NOT NULL,
+                    reward     INTEGER NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
             self.conn.commit()
 
     def create_user(self, username: str, password_hash: str) -> bool:
@@ -157,6 +182,25 @@ class Database:
             "budget":   self.load_budget(user_id),
             "expenses": self.load_expenses(user_id),
         }
+
+    # ── Chat feedback (RL) ────────────────────────────────────────────────
+    def save_feedback(self, user_id: int, question: str, response: str, reward: int):
+        """Store a thumbs-up (+1) or thumbs-down (-1) rating for a Q&A pair."""
+        self.conn.execute(
+            "INSERT INTO chat_feedback (user_id, question, response, reward) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, question, response, reward)
+        )
+        self.conn.commit()
+
+    def get_positive_feedback(self, user_id: int, limit: int = 50) -> list:
+        """Return (question, response) pairs the user rated positively, newest first."""
+        return self.conn.execute(
+            "SELECT question, response FROM chat_feedback "
+            "WHERE user_id = ? AND reward > 0 "
+            "ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
 
     def close(self):
         self.conn.close()

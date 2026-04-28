@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 
 class HomeSavingsPlan:
 
-    CSV_FILE = "fredgraph.csv"
+    CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fredgraph.csv")
 
     REGION_LABELS = {
         "1": ("MSPUS", "United States (National)"),
@@ -147,15 +147,29 @@ class HomeSavingsPlan:
     # ── Savings plan calculator ───────────────────────────────────────
     @staticmethod
     def _savings_plan(target_price: float, down_pct: float,
-                      current_savings: float, months_remaining: int) -> dict:
+                      current_savings: float, months_remaining: int,
+                      annual_rate: float = 0.065,
+                      loan_term_years: int = 30) -> dict:
         down_payment_needed = target_price * down_pct
         still_needed        = max(0.0, down_payment_needed - current_savings)
         monthly_needed      = still_needed / months_remaining if months_remaining > 0 else still_needed
+
+        loan_amount = target_price - down_payment_needed
+        r = annual_rate / 12
+        n = loan_term_years * 12
+        if r > 0 and loan_amount > 0:
+            monthly_payment = loan_amount * (r * (1 + r) ** n) / ((1 + r) ** n - 1)
+        elif loan_amount > 0:
+            monthly_payment = loan_amount / n
+        else:
+            monthly_payment = 0.0
+
         return {
-            "down_payment":   down_payment_needed,
-            "already_saved":  current_savings,
-            "still_needed":   still_needed,
-            "monthly_needed": monthly_needed,
+            "down_payment":    down_payment_needed,
+            "already_saved":   current_savings,
+            "still_needed":    still_needed,
+            "monthly_needed":  monthly_needed,
+            "monthly_payment": monthly_payment,
         }
 
     # ── Chart ─────────────────────────────────────────────────────────
