@@ -1,22 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-app.py  —  PennyPath GUI
-Run:  py app.py
+desktop.py  —  PennyPath desktop app (Tkinter).
+Run from the project root:  python run_desktop.py
 
 Dark-mode, Gen-Z aesthetic built on standard tkinter (no extra deps).
 """
-import sys, os, io, re, hashlib, datetime, threading
-sys.path.insert(0, os.path.dirname(__file__))
+import sys, os, io, re, datetime, threading
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from database          import Database
-from accounts          import SavingsAccount, CheckingAccount, WageAccount
-from wages             import Wages
-from expenses          import Needs, Wants
-from budget            import Budget, BudgetAdvisor
-from home_savings_plan import HomeSavingsPlan
+from pennypath import auth
+from pennypath.assistant import chat_guard
+from pennypath.finance.affordability     import check as loan_check
+from pennypath.database          import Database
+from pennypath.finance.accounts         import SavingsAccount, CheckingAccount, WageAccount
+from pennypath.finance.wages             import Wages
+from pennypath.finance.expenses          import Needs, Wants, make_expense, from_rows, summarize
+from pennypath.ml.budget            import Budget, BudgetAdvisor
+from pennypath.ml.home_savings_plan import HomeSavingsPlan
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Design tokens
@@ -134,8 +136,8 @@ def _styled_combo(parent, var, values, width=18):
     return cb
 
 
-def _hash_pw(pw: str) -> str:
-    return hashlib.sha256(f"pennypath_salt_2024{pw}".encode()).hexdigest()
+def _monthly(weekly_wage: float) -> float:
+    return weekly_wage * 52 / 12
 
 
 def _strip_ansi(s: str) -> str:
@@ -269,8 +271,8 @@ class AuthScreen(tk.Frame):
         self._err_lbl = Lbl(card, "", "small", C["red"])
         self._err_lbl.pack(fill="x", pady=(0, 10))
 
-        self._submit = PillBtn(card, text="Log In", command=self._submit)
-        self._submit.pack(fill="x", ipady=2)
+        self._submit_btn = PillBtn(card, text="Log In", command=self._submit)
+        self._submit_btn.pack(fill="x", ipady=2)
 
         self._pw.bind("<Return>",   lambda _: self._submit())
         self._conf.bind("<Return>", lambda _: self._submit())
@@ -291,10 +293,10 @@ class AuthScreen(tk.Frame):
         self._rtab.config(**self._tstyle(not is_login))
         if is_login:
             self._conf_wrap.pack_forget()
-            self._submit.config(text="Log In")
+            self._submit_btn.config(text="Log In")
         else:
             self._conf_wrap.pack(fill="x")
-            self._submit.config(text="Create Account")
+            self._submit_btn.config(text="Create Account")
         self._err_lbl.config(text="")
 
     def _err(self, msg: str):
@@ -302,34 +304,20 @@ class AuthScreen(tk.Frame):
 
     def _submit(self):
         u = self._uname.get().strip()
-        p = self._pw.get().strip()
+        p = self._pw.get()
         self._err_lbl.config(text="")
 
         if self._mode == "login":
-            row = self._db.get_user(u)
-            if row is None:
-                self._err("User not found.")
+            user = auth.authenticate(self._db, u, p)
+            if user is None:
+                self._err(auth.LOGIN_FAILED)
                 return
-            if _hash_pw(p) != row[2]:
-                self._err("Incorrect password.")
-                return
-            self._on_success({"id": row[0], "username": row[1]})
         else:
-            c = self._conf.get().strip()
-            if not u:
-                self._err("Username cannot be empty.")
+            user, error = auth.register(self._db, u, p, self._conf.get())
+            if error:
+                self._err(error)
                 return
-            if len(p) < 4:
-                self._err("Password must be at least 4 characters.")
-                return
-            if p != c:
-                self._err("Passwords do not match.")
-                return
-            if not self._db.create_user(u, _hash_pw(p)):
-                self._err("Username already taken.")
-                return
-            row = self._db.get_user(u)
-            self._on_success({"id": row[0], "username": row[1]})
+        self._on_success(user)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -481,7 +469,7 @@ class DashboardPage(PageBase):
         a = self._app
         self._greet.config(text=f"💰  Hey, {a.current_user['username']}!")
 
-        income = a.wages.weekly_wage * 4
+        income = _monthly(a.wages.weekly_wage)
         self._c_check.update_val(a.checking.balance)
         self._c_save.update_val(a.savings.balance)
         self._c_income.update_val(income)
@@ -657,10 +645,7 @@ class ExpensesPage(PageBase):
             return
 
         a   = self._app
-        cls = Needs if self._cat == "needs" else Wants
-        exp = object.__new__(cls)
-        exp.name = name; exp.ammt = ammt
-        exp.freq = freq; exp.subcategory = sub; exp.frm = ""
+        exp = make_expense(self._cat, sub, name, ammt, freq)
 
         a.expenses.append(exp)
         if self._cat == "needs":
@@ -716,7 +701,7 @@ class ExpensesPage(PageBase):
             right.pack(side="right")
             Lbl(right, f"${exp.monthly_amount():,.2f}/mo", "h3",
                 accent).pack(anchor="e")
-            Lbl(right, f"${exp.ammt:,.2f} {exp.freq}", "small",
+            Lbl(right, f"${exp.amount:,.2f} {exp.freq}", "small",
                 C["muted"]).pack(anchor="e")
 
 
@@ -825,7 +810,11 @@ class WagesPage(PageBase):
         except ValueError:
             self._msg.config(text="Enter a valid amount.", fg=C["red"])
             return
-        self._app.wage_acct.withdraw_wage(amt, self._app.savings)
+        if not self._app.wage_acct.withdraw_wage(amt, self._app.savings):
+            self._msg.config(
+                text=f"Not enough in the wage account (${self._app.wage_acct.balance:,.2f}).",
+                fg=C["red"])
+            return
         self._app.autosave()
         self._msg.config(text=f"Transferred ${amt:,.2f} to Savings!", fg=C["green"])
         self._xfer_e.delete(0, "end")
@@ -834,7 +823,7 @@ class WagesPage(PageBase):
     def refresh(self):
         w = self._app.wages.weekly_wage
         self._wage_lbl.config(text=f"${w:,.2f}")
-        self._monthly_lbl.config(text=f"~ ${w * 4.33:,.2f} / month")
+        self._monthly_lbl.config(text=f"~ ${_monthly(w):,.2f} / month")
         self._wacct_lbl.config(
             text=f"Wage Account Balance:  ${self._app.wage_acct.balance:,.2f}")
 
@@ -882,17 +871,16 @@ class AffordabilityPage(PageBase):
             ammt = float(self._ammt_e.get())
             rate = float(self._rate_e.get())
             mnth = int(self._mnth_e.get())
+            if inc <= 0 or ammt <= 0 or rate < 0 or not 1 <= mnth <= 600:
+                raise ValueError
         except ValueError:
             Lbl(self._result_f,
-                "Fill in all fields with valid numbers.",
+                "Enter positive numbers (loan length 1–600 months).",
                 "body", C["red"]).pack(anchor="w", pady=8)
             return
 
-        intrt = rate / 100 / 12
-        monthly = (ammt * (intrt * (1 + intrt) ** mnth) /
-                   ((1 + intrt) ** mnth - 1)) if intrt > 0 else ammt / max(mnth, 1)
-        max_pay = inc * 0.36
-        ok = monthly <= max_pay
+        r = loan_check(inc, ammt, rate, mnth)
+        monthly, max_pay, ok = r["monthly_payment"], r["max_allowable"], r["affordable"]
 
         card = tk.Frame(self._result_f, bg=C["card"], padx=24, pady=20)
         card.pack(fill="x")
@@ -915,7 +903,7 @@ class AffordabilityPage(PageBase):
                 color if "Payment" in lbl else C["text"]).pack(side="right")
 
     def refresh(self):
-        inc = self._app.wages.weekly_wage * 4
+        inc = _monthly(self._app.wages.weekly_wage)
         if inc > 0:
             self._inc_e.delete(0, "end")
             self._inc_e.insert(0, f"{inc:.2f}")
@@ -928,7 +916,7 @@ class AffordabilityPage(PageBase):
 class BudgetAIPage(PageBase):
     def __init__(self, parent, app):
         super().__init__(parent, app, "Budget AI",
-                         "ML-powered 50/30/20 personalised recommendations.")
+                         "Compare your spending with thrifty households like yours.")
         self._build()
 
     def _build(self):
@@ -954,7 +942,7 @@ class BudgetAIPage(PageBase):
 
     def _run(self):
         a = self._app
-        income = a.wages.weekly_wage * 4
+        income = _monthly(a.wages.weekly_wage)
         self._out.config(state="normal")
         self._out.delete("1.0", "end")
 
@@ -963,62 +951,16 @@ class BudgetAIPage(PageBase):
             self._out.config(state="disabled")
             return
 
-        rec = a.advisor.recommend(income, a.necessary_total,
-                                   a.nonnecessary_total, a.expenses)
+        prof = a.db.load_profile(a.current_user["id"])
+        rec = a.advisor.recommend(income, a.necessary_total, a.nonnecessary_total, a.expenses,
+                                  household_size=prof["household_size"], age=prof["age"])
         if not rec:
             self._write("Could not generate recommendation.\n", "red")
             self._out.config(state="disabled")
             return
 
-        r = rec
-
-        def ln(text="", tag=""):
+        for text, tag in a.advisor.report_lines(rec):
             self._write(text + "\n", tag)
-
-        ln("BUDGET RECOMMENDATION REPORT", "head")
-        ln("=" * 52, "muted")
-        ln(f"  Monthly Income    ${r['monthly_income']:>12,.2f}")
-        ln()
-        ln(f"  {'Category':<20} {'Recommended':>12}  {'Actual':>10}")
-        ln("  " + "-" * 46, "muted")
-
-        for cat, rk, ak in [("Needs  (50%)", "rec_needs",   "actual_needs"),
-                             ("Wants  (30%)", "rec_wants",   "actual_wants"),
-                             ("Savings(20%)", "rec_savings", "actual_savings")]:
-            rv, av = r[rk], r[ak]
-            is_savings = "Savings" in cat
-            over = (av < rv) if is_savings else (av > rv)
-            tag  = "red" if over else "green"
-            self._write(f"  {cat:<20} ${rv:>10,.2f}  ", "")
-            self._write(f"${av:>9,.2f}\n", tag)
-
-        ln()
-        ln("  Subcategory Breakdown:", "head")
-        ln("  " + "-" * 46, "muted")
-
-        for sub, info in r["subcategories"].items():
-            if info["actual"] > 0:
-                over = info["actual"] > info["recommended"]
-                tag  = "red" if over else "green"
-                self._write(f"  {sub.title():<24} ${info['recommended']:>8,.2f}  ")
-                self._write(f"${info['actual']:>8,.2f}\n", tag)
-
-        ln()
-        ln("  Insights:", "head")
-
-        shown = False
-        if r["actual_needs"] > r["rec_needs"]:
-            ln(f"  Needs are ${r['actual_needs']-r['rec_needs']:.2f} over target.", "red")
-            shown = True
-        if r["actual_wants"] > r["rec_wants"]:
-            ln(f"  Wants are ${r['actual_wants']-r['rec_wants']:.2f} over target.", "red")
-            shown = True
-        if r["actual_savings"] < r["rec_savings"]:
-            ln(f"  Savings are ${r['rec_savings']-r['actual_savings']:.2f} below target.", "amber")
-            shown = True
-        if not shown:
-            ln("  All spending within recommended limits — great job!", "green")
-
         self._out.config(state="disabled")
 
     def refresh(self):
@@ -1100,17 +1042,18 @@ class HomePlanPage(PageBase):
         self._ferr.config(text="")
 
         hp = self._app.home_plan
-        if not hp._trained:
+        if not hp.trained:
             self._ferr.config(text="fredgraph.csv not found — feature unavailable.")
             return
 
         col = REGIONS[self._region_v.get()]
+        this_year = datetime.date.today().year
         try:
             year = int(self._year_e.get())
-            if year < datetime.date.today().year:
+            if not this_year <= year <= this_year + 30:
                 raise ValueError
         except ValueError:
-            self._ferr.config(text="Enter a valid future year.")
+            self._ferr.config(text=f"Enter a year from {this_year} to {this_year + 30}.")
             return
 
         dp = DOWN_PCTS[self._dp_v.get()]
@@ -1131,19 +1074,11 @@ class HomePlanPage(PageBase):
 
         loan_term = int(self._term_v.get())
 
-        today = datetime.date.today()
-        months = max(1, (year - today.year) * 12 + (1 - today.month))
-        income = self._app.wages.weekly_wage * 4
-
-        prices = hp._predict_price(col, year)
-        lr_p, knn_p = prices["lr"], prices["knn"]
-        avg_p = (lr_p + knn_p) / 2
-
-        plans = [
-            ("Linear Regression", lr_p,  hp._savings_plan(lr_p,  dp, sav, months, annual_rate, loan_term)),
-            ("KNN",               knn_p, hp._savings_plan(knn_p, dp, sav, months, annual_rate, loan_term)),
-            ("Average",           avg_p, hp._savings_plan(avg_p, dp, sav, months, annual_rate, loan_term)),
-        ]
+        months = hp.months_until(year)
+        income = _monthly(self._app.wages.weekly_wage)
+        fc = hp.forecast(col, year)
+        plan = hp.savings_plan(fc["price"], dp, sav, months, annual_rate, loan_term)
+        m = hp.metrics[col]
 
         # Header
         hdr = tk.Frame(self._res_f, bg=C["card"], padx=20, pady=14)
@@ -1153,60 +1088,40 @@ class HomePlanPage(PageBase):
         Lbl(hdr, f"Savings: ${sav:,.0f}  ·  {months} months away",
             "small", C["muted"]).pack(anchor="w", pady=(4, 0))
 
-        def _make_card(parent, model, price, plan):
-            feasible = income > 0 and plan["monthly_needed"] <= income * 0.20
-            mc = C["green"] if feasible else C["red"]
-            card = tk.Frame(parent, bg=C["card"], padx=20, pady=14)
-            card.pack(fill="x", pady=3)
-            top = tk.Frame(card, bg=C["card"])
-            top.pack(fill="x")
-            Lbl(top, model, "h3").pack(side="left")
-            Lbl(top, f"${price:,.0f}", "h3", C["green"]).pack(side="right")
-            _divider(card, pady=6)
-            for lbl, val, vc in [
-                ("Down Payment Needed",  f"${plan['down_payment']:,.0f}",   C["text"]),
-                ("Still Needed",         f"${plan['still_needed']:,.0f}",   C["text"]),
-                ("Monthly Savings Req",  f"${plan['monthly_needed']:,.2f}",  mc),
-                ("Est. Monthly Payment", f"${plan['monthly_payment']:,.2f}", C["amber"]),
-            ]:
-                r = tk.Frame(card, bg=C["card"])
-                r.pack(fill="x", pady=1)
-                Lbl(r, lbl, "small", C["muted"]).pack(side="left")
-                Lbl(r, val, "body", vc).pack(side="right")
+        feasible = income > 0 and plan["monthly_needed"] <= income * 0.20
+        mc = C["green"] if feasible else C["red"]
+        card = tk.Frame(self._res_f, bg=C["card"], padx=20, pady=14)
+        card.pack(fill="x", pady=3)
+        top = tk.Frame(card, bg=C["card"])
+        top.pack(fill="x")
+        Lbl(top, "Forecast median price", "h3").pack(side="left")
+        Lbl(top, f"${fc['price']:,.0f}", "h3", C["green"]).pack(side="right")
+        Lbl(card, f"95% range ${fc['low']:,.0f} – ${fc['high']:,.0f}  ·  {fc['model']}",
+            "small", C["muted"]).pack(anchor="w")
+        _divider(card, pady=6)
+        for lbl, val, vc in [
+            ("Down Payment Needed",  f"${plan['down_payment']:,.0f}",   C["text"]),
+            ("Still Needed",         f"${plan['still_needed']:,.0f}",   C["text"]),
+            ("Monthly Savings Req",  f"${plan['monthly_needed']:,.2f}",  mc),
+            ("Est. Monthly Payment", f"${plan['monthly_payment']:,.2f}", C["amber"]),
+        ]:
+            r = tk.Frame(card, bg=C["card"])
+            r.pack(fill="x", pady=1)
+            Lbl(r, lbl, "small", C["muted"]).pack(side="left")
+            Lbl(r, val, "body", vc).pack(side="right")
 
-        # Always show Average
-        _make_card(self._res_f, *plans[2])
+        Lbl(self._res_f,
+            f"Model test error {hp.test_period}: {m['test_mape']:.1f}% MAPE "
+            f"(naive flat-price baseline: {m['naive_mape']:.1f}%)",
+            "small", C["muted"]).pack(anchor="w", pady=(8, 0))
 
-        # LR + KNN hidden behind a toggle
-        detail_frame = tk.Frame(self._res_f, bg=C["bg"])
-        _expanded = [False]
-
-        def _toggle():
-            if _expanded[0]:
-                detail_frame.pack_forget()
-                toggle_btn.config(text="▶  Show Model Details (LR & KNN)")
-            else:
-                detail_frame.pack(fill="x", before=toggle_btn)
-                toggle_btn.config(text="▼  Hide Model Details")
-            _expanded[0] = not _expanded[0]
-
-        toggle_btn = tk.Button(
-            self._res_f, text="▶  Show Model Details (LR & KNN)",
-            font=F["small"], fg=C["muted"], bg=C["bg"],
-            activeforeground=C["text"], activebackground=C["bg"],
-            relief="flat", cursor="hand2", anchor="w",
-            command=_toggle,
-        )
-        toggle_btn.pack(anchor="w", pady=(6, 0))
-
-        for model, price, plan in plans[:2]:
-            _make_card(detail_frame, model, price, plan)
+        def _chart():
+            import matplotlib.pyplot as plt
+            hp.figure(col, year, sav, dp, dark=False)
+            plt.show()
 
         PillBtn(self._res_f, text="Show Price Chart", color=C["muted"],
-                command=lambda: hp._show_chart(
-                    col, self._region_v.get(), year,
-                    plans[0][1], plans[1][1], sav, dp)
-                ).pack(anchor="w", pady=(14, 0))
+                command=_chart).pack(anchor="w", pady=(14, 0))
 
     def refresh(self):
         sav = self._app.savings.balance
@@ -1221,22 +1136,13 @@ class HomePlanPage(PageBase):
 
 class FinanceChatPage(tk.Frame):
     """
-    Retrieval-based chatbot with a reinforcement-learning feedback loop.
+    AI-powered finance chatbot using Ollama (local, free, no API key needed).
 
-    RL loop
-    -------
-    1. TF-IDF finds the best-matching tip from a 200-pair dataset.
-    2. User rates it 👍 (+1) or 👎 (-1)  →  reward signal.
-    3. Rating + Q&A pair saved to SQLite  →  experience replay buffer.
-    4. Next question: high-rated past answers get a similarity score boost,
-       surfacing them more often  →  policy improvement over sessions.
-    No API key, no model download — works fully offline.
+    Streams responses token-by-token, injects live financial context into the
+    system prompt, and preserves the 👍/👎 feedback loop in SQLite.
+    Requires: https://ollama.com installed and a model pulled, e.g.:
+        ollama pull llama3.2
     """
-
-    # Class-level TF-IDF cache (built once, shared across instances)
-    _tips: list        = []
-    _vectorizer        = None
-    _tip_matrix        = None
 
     def __init__(self, parent, app, on_close):
         super().__init__(parent, bg=C["sidebar"],
@@ -1244,8 +1150,8 @@ class FinanceChatPage(tk.Frame):
                          highlightbackground=C["border"])
         self._app      = app
         self._on_close = on_close
-        self._history  = []
-        self._last_q   = ""   # tracks the most recent user question for rating
+        self._history: list = []   # full multi-turn conversation sent to Claude
+        self._last_q   = ""
         self._build()
 
     # ── UI ────────────────────────────────────────────────────────────────
@@ -1263,7 +1169,7 @@ class FinanceChatPage(tk.Frame):
             relief="flat", cursor="hand2", bd=0,
             command=self._on_close,
         ).pack(side="right")
-        Lbl(hdr, "200 financial tips · learns from your feedback",
+        Lbl(hdr, "Runs locally · personalised to your finances",
             "small", C["muted"]).pack(anchor="w")
 
         self._chat = tk.Text(
@@ -1294,9 +1200,11 @@ class FinanceChatPage(tk.Frame):
         self._status = Lbl(row, "", "small", C["muted"])
         self._status.pack(side="left", padx=10)
 
-        self._write_ai("Hey! I'm your personal finance assistant. "
-                       "Ask me anything about budgeting, saving, or debt. "
-                       "Rate my answers to help me improve over time!")
+        self._write_ai(
+            "Hey! I'm your AI finance assistant. "
+            "Ask me anything about budgeting, saving, investing, or debt — "
+            "I'll give you personalised advice based on your real numbers!"
+        )
 
     # ── Text helpers ──────────────────────────────────────────────────────
 
@@ -1312,39 +1220,30 @@ class FinanceChatPage(tk.Frame):
         S = 34
         cv = tk.Canvas(parent, width=S, height=S,
                        bg=C["bg"], highlightthickness=0)
-        # Head circle
         cv.create_oval(1, 1, S - 1, S - 1, fill=C["card"], outline=C["green"], width=2)
-        # Antenna stem
         cv.create_line(S // 2, 1, S // 2, 8, fill=C["green"], width=2)
-        # Antenna tip
         cv.create_oval(S // 2 - 3, 0, S // 2 + 3, 6,
                        fill=C["amber"], outline="")
-        # Eyes
         cv.create_oval(8,  13, 14, 19, fill=C["green"], outline="")
         cv.create_oval(20, 13, 26, 19, fill=C["green"], outline="")
-        # Pupils
         cv.create_oval(10, 15, 12, 17, fill=C["bg"], outline="")
         cv.create_oval(22, 15, 24, 17, fill=C["bg"], outline="")
-        # Mouth
         cv.create_arc(9, 19, 25, 30, start=200, extent=140,
                       style="arc", outline=C["green"], width=2)
         return cv
 
-    def _write_ai(self, text):
-        """Append an AI message with avatar header and embedded 👍/👎 buttons."""
+    def _write_ai(self, text: str):
+        """Render a complete (non-streaming) AI message with avatar and feedback."""
         self._chat.config(state="normal")
 
-        # Avatar + name row
         hdr = tk.Frame(self._chat, bg=C["bg"])
         self._make_avatar(hdr).pack(side="left", padx=(0, 7), anchor="center")
         tk.Label(hdr, text="PennyPath AI", font=F["h3"],
                  fg=C["purple"], bg=C["bg"]).pack(side="left", anchor="center")
         self._chat.window_create("end", window=hdr)
         self._chat.insert("end", "\n")
-
         self._chat.insert("end", f"{text}\n", "body")
 
-        # Capture question at time of writing (not later via closure)
         question = self._last_q
         response = text
 
@@ -1364,8 +1263,53 @@ class FinanceChatPage(tk.Frame):
         self._chat.config(state="disabled")
         self._chat.see("end")
 
+    def _start_ai_bubble(self):
+        """Open a streaming AI bubble (avatar header only; text will follow)."""
+        self._chat.config(state="normal")
+        hdr = tk.Frame(self._chat, bg=C["bg"])
+        self._make_avatar(hdr).pack(side="left", padx=(0, 7), anchor="center")
+        tk.Label(hdr, text="PennyPath AI", font=F["h3"],
+                 fg=C["purple"], bg=C["bg"]).pack(side="left", anchor="center")
+        self._chat.window_create("end", window=hdr)
+        self._chat.insert("end", "\n")
+        self._chat.config(state="disabled")
+        self._chat.see("end")
+
+    def _append_stream(self, chunk: str):
+        """Append one streamed token chunk (called on the main thread via after())."""
+        self._chat.config(state="normal")
+        self._chat.insert("end", chunk, "body")
+        self._chat.config(state="disabled")
+        self._chat.see("end")
+
+    def _finish_ai_bubble(self, full_response: str):
+        """Close the streaming bubble: add newline + feedback buttons, re-enable input."""
+        question = self._last_q
+        self._chat.config(state="normal")
+        self._chat.insert("end", "\n")
+
+        fb = tk.Frame(self._chat, bg=C["bg"])
+        Lbl(fb, "Helpful?", "small", C["muted"]).pack(side="left", padx=(0, 6))
+        for icon, reward in (("👍", +1), ("👎", -1)):
+            tk.Button(
+                fb, text=icon, font=("Segoe UI", 10),
+                bg=C["bg"], fg="#ffffff", activeforeground="#ffffff",
+                relief="flat", cursor="hand2", bd=0,
+                command=lambda q=question, r=full_response, v=reward, f=fb:
+                    self._rate(q, r, v, f),
+            ).pack(side="left", padx=2)
+
+        self._chat.window_create("end", window=fb)
+        self._chat.insert("end", "\n\n")
+        self._chat.config(state="disabled")
+        self._chat.see("end")
+
+        self._send_btn.config(state="normal")
+        self._status.config(text="")
+        self._entry.focus()
+
     def _rate(self, question, response, reward, fb_frame):
-        """Save feedback (reward signal) and update the button UI."""
+        """Save feedback and update the button UI."""
         if not self._app.current_user:
             return
         self._app.db.save_feedback(
@@ -1376,121 +1320,17 @@ class FinanceChatPage(tk.Frame):
         label = "✓ Thanks — I'll do more of that!" if reward > 0 else "✓ Got it — I'll improve."
         Lbl(fb_frame, label, "small", C["green"] if reward > 0 else C["muted"]).pack(side="left")
 
-    # ── RL: few-shot retrieval ─────────────────────────────────────────────
+    # ── Claude API ────────────────────────────────────────────────────────
 
-    def _get_few_shot_examples(self, current_question: str) -> list:
-        """
-        Experience replay: find past 👍 Q&A pairs similar to the current question.
-        Uses TF-IDF cosine similarity — no extra dependencies needed.
-        Returns up to 3 (question, response) pairs ordered by similarity.
-        """
-        if not self._app.current_user:
-            return []
-        past = self._app.db.get_positive_feedback(
-            self._app.current_user["id"], limit=60
-        )
-        if not past:
-            return []
-
-        try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.metrics.pairwise import cosine_similarity
-            import numpy as np
-
-            questions = [q for q, _ in past]
-            corpus    = questions + [current_question]
-            mat       = TfidfVectorizer(stop_words="english").fit_transform(corpus)
-            sims      = cosine_similarity(mat[-1:], mat[:-1])[0]
-
-            top = sorted(enumerate(sims), key=lambda x: x[1], reverse=True)[:3]
-            return [(past[i][0], past[i][1]) for i, score in top if score > 0.08]
-        except Exception:
-            return []
-
-    # ── Tips dataset ──────────────────────────────────────────────────────
-
-    def _load_tips(self):
-        """Load dataset and build TF-IDF index once (cached at class level)."""
-        if FinanceChatPage._tips:
-            return
-        import json
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        tips_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "financial_tips.json"
-        )
-        with open(tips_path, "r", encoding="utf-8") as f:
-            FinanceChatPage._tips = json.load(f)
-        questions = [t["question"] for t in FinanceChatPage._tips]
-        FinanceChatPage._vectorizer = TfidfVectorizer(
-            stop_words="english", ngram_range=(1, 2)
-        )
-        FinanceChatPage._tip_matrix = FinanceChatPage._vectorizer.fit_transform(questions)
-
-    def _find_best_tip(self, question: str) -> tuple:
-        """Return (answer, confidence_score) for the best matching tip."""
-        from sklearn.metrics.pairwise import cosine_similarity
-        import numpy as np
-
-        self._load_tips()
-        q_vec = FinanceChatPage._vectorizer.transform([question])
-        sims  = cosine_similarity(q_vec, FinanceChatPage._tip_matrix)[0].copy()
-
-        # RL boost: past 👍 answers get a score bump so they surface more often
-        examples = self._get_few_shot_examples(question)
-        for _, past_a in examples:
-            for i, tip in enumerate(FinanceChatPage._tips):
-                if tip["answer"] == past_a:
-                    sims[i] = min(1.0, sims[i] + 0.15)
-                    break
-
-        best_idx = int(np.argmax(sims))
-        return FinanceChatPage._tips[best_idx]["answer"], float(sims[best_idx])
-
-    def _personalize(self, answer: str, question: str, score: float) -> str:
-        """Append a brief personalized note based on the user's live financial data."""
-        a       = self._app
-        income  = a.wages.weekly_wage * 4
-        surplus = income - a.necessary_total - a.nonnecessary_total
-        q_l     = question.lower()
-
-        note = ""
-        if income > 0:
-            if any(w in q_l for w in ("emergency", "fund", "buffer", "cushion")):
-                target = (a.necessary_total + a.nonnecessary_total) * 3
-                note = (
-                    f"Your numbers: monthly expenses ${a.necessary_total + a.nonnecessary_total:,.0f} "
-                    f"→ 3-month emergency fund target: ${target:,.0f}."
-                )
-            elif any(w in q_l for w in ("50/30/20", "budget", "budgeting", "rule")):
-                note = (
-                    f"Your 50/30/20 on ${income:,.0f}/mo: "
-                    f"needs ${income * .5:,.0f} / wants ${income * .3:,.0f} / savings ${income * .2:,.0f}. "
-                    f"Currently spending ${a.necessary_total:,.0f} on needs, "
-                    f"${a.nonnecessary_total:,.0f} on wants."
-                )
-            elif any(w in q_l for w in ("save", "saving", "savings rate")):
-                rate = (surplus / income * 100) if income > 0 else 0
-                note = (
-                    f"Your current savings rate: {rate:.0f}% "
-                    f"(${surplus:,.0f}/mo surplus on ${income:,.0f} income)."
-                )
-            elif any(w in q_l for w in ("invest", "investing", "retirement", "401k", "ira", "compound")):
-                monthly = min(surplus, 500) if surplus > 0 else 100
-                future  = monthly * 12 * ((1.07 ** 10 - 1) / 0.07)
-                note = (
-                    f"With your ${surplus:,.0f}/mo surplus, investing "
-                    f"${monthly:,.0f}/mo at 7%/yr grows to ~${future:,.0f} in 10 years."
-                )
-
-        if score < 0.12:
-            answer = "I don't have an exact match, but here's something related:\n\n" + answer
-
-        if note:
-            answer += f"\n\n📊 {note}"
-
-        return answer
-
-    # ── Local retrieval call ──────────────────────────────────────────────
+    def _snapshot(self) -> dict:
+        """The user's live numbers, injected into the chat system prompt."""
+        a = self._app
+        snap = dict(income=_monthly(a.wages.weekly_wage),
+                    needs=a.necessary_total, wants=a.nonnecessary_total,
+                    checking=a.checking.balance, savings=a.savings.balance)
+        if a.current_user:
+            snap["debt"] = a.db.load_debt(a.current_user["id"])
+        return snap
 
     def _send(self):
         msg = self._entry.get().strip()
@@ -1501,24 +1341,32 @@ class FinanceChatPage(tk.Frame):
         self._write("You\n", "you")
         self._write(f"{msg}\n\n")
         self._send_btn.config(state="disabled")
-        self._status.config(text="Searching…")
-        threading.Thread(target=self._call_local, daemon=True).start()
+        self._status.config(text="Thinking…")
+        self._history.append({"role": "user", "content": msg})
+        self._start_ai_bubble()
+        threading.Thread(target=self._call_claude, daemon=True).start()
 
-    def _call_local(self):
+    def _call_claude(self):
+        """Stream a response from Ollama (runs in a background thread)."""
         try:
-            answer, score = self._find_best_tip(self._last_q)
-            answer = self._personalize(answer, self._last_q, score)
-            self._app.root.after(0, lambda r=answer: self._on_reply(r))
+            messages = chat_guard.sanitize_history(self._history)
+            accumulated: list = []
+            for token in chat_guard.stream_reply(messages, self._snapshot()):
+                accumulated.append(token)
+                self._app.root.after(0, lambda c=token: self._append_stream(c))
+
+            full = "".join(accumulated)
+            self._history.append({"role": "assistant", "content": full})
+            self._app.root.after(0, lambda r=full: self._finish_ai_bubble(r))
+
+        except ImportError:
+            self._app.root.after(0, lambda: self._on_error(
+                "ollama package not found — run: pip install ollama"
+            ))
         except Exception as e:
             self._app.root.after(0, lambda m=str(e): self._on_error(m))
 
-    def _on_reply(self, text):
-        self._write_ai(text)
-        self._send_btn.config(state="normal")
-        self._status.config(text="")
-        self._entry.focus()
-
-    def _on_error(self, msg):
+    def _on_error(self, msg: str):
         self._write(f"Error: {msg}\n\n", "err")
         if self._history and self._history[-1]["role"] == "user":
             self._history.pop()
@@ -1608,19 +1456,9 @@ class PennyPathApp:
         self.savings.balance   = s["savings"]
         self.checking.balance  = s["checking"]
         self.wages.weekly_wage = s["wage"]
-        self.expenses.clear()
-        self.necessary_total = 0.0; self.nonnecessary_total = 0.0
-
-        for cat, sub, name, amount, freq in s["expenses"]:
-            cls = Needs if cat == "needs" else Wants
-            exp = object.__new__(cls)
-            exp.name = name; exp.ammt = amount
-            exp.freq = freq; exp.subcategory = sub; exp.frm = ""
-            self.expenses.append(exp)
-            if cat == "needs":
-                self.necessary_total += exp.monthly_amount()
-            else:
-                self.nonnecessary_total += exp.monthly_amount()
+        self.wage_acct.balance = s["wage_account"]
+        self.expenses[:] = from_rows(s["expenses"])
+        self.necessary_total, self.nonnecessary_total = summarize(self.expenses)
 
         if s["budget"] > 0:
             self.budget = Budget(self.checking.balance)
@@ -1634,6 +1472,7 @@ class PennyPathApp:
             self.wages.weekly_wage,
             self.budget.bd if self.budget else None,
             self.current_user["id"],
+            wage_account_bal=self.wage_acct.balance,
         )
 
     # ── Main shell ────────────────────────────────────────────────────────────

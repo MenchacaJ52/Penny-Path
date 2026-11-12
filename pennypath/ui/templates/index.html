@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PennyPath</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0d0d14;
+  --card:    #1a1a2e;
+  --sidebar: #13131f;
+  --border:  #2d2d44;
+  --green:   #22c55e;
+  --amber:   #f59e0b;
+  --red:     #ef4444;
+  --purple:  #a855f7;
+  --text:    #e2e8f0;
+  --muted:   #64748b;
+  --input:   #0f0f1a;
+  --hover:   #22223a;
+}
+
+body {
+  background: var(--bg); color: var(--text);
+  font-family: 'Segoe UI', sans-serif; font-size: 14px;
+  height: 100vh; display: flex; flex-direction: column;
+}
+
+/* ── Auth ─────────────────────────────────────────────────────── */
+#auth { display: flex; align-items: center; justify-content: center; flex: 1; }
+.auth-card { background: var(--card); padding: 40px; width: 360px; border-radius: 8px; }
+.auth-logo { color: var(--green); font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 6px; }
+.auth-sub  { color: var(--muted); font-size: 12px; text-align: center; margin-bottom: 28px; }
+.auth-tabs { display: flex; margin-bottom: 24px; }
+.auth-tab  { flex: 1; padding: 10px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; background: var(--bg); color: var(--muted); }
+.auth-tab.active { background: var(--green); color: #fff; }
+
+/* ── Inputs ───────────────────────────────────────────────────── */
+input, select {
+  width: 100%; padding: 10px 12px; background: var(--input);
+  border: 1px solid var(--border); color: var(--text);
+  font-size: 14px; border-radius: 4px; outline: none; font-family: inherit;
+}
+input:focus, select:focus { border-color: var(--green); }
+.field       { margin-bottom: 14px; }
+.field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; font-family: inherit; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:hover { background: #16a34a; }
+.btn-red   { background: var(--red);   color: #fff; }
+.btn-muted { background: var(--border); color: var(--text); }
+.btn-full  { width: 100%; padding: 12px; }
+.err { color: var(--red); font-size: 12px; margin-bottom: 10px; min-height: 18px; }
+
+/* ── App shell ────────────────────────────────────────────────── */
+#app { display: flex; flex: 1; overflow: hidden; }
+#sidebar { width: 210px; background: var(--sidebar); display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid var(--border); }
+.sidebar-logo   { padding: 24px 20px 4px; color: var(--green); font-size: 18px; font-weight: 700; }
+.sidebar-user   { padding: 0 20px 16px; color: var(--muted); font-size: 12px; }
+.sidebar-hr     { height: 1px; background: var(--border); }
+.nav-item       { display: block; padding: 10px 22px; color: var(--muted); cursor: pointer; font-size: 14px; user-select: none; }
+.nav-item:hover { background: var(--hover); color: var(--text); }
+.nav-item.active { background: var(--hover); color: var(--green); }
+.sidebar-spacer { flex: 1; }
+.sidebar-foot   { padding: 8px; }
+#content { flex: 1; overflow-y: auto; padding: 28px 32px; }
+
+/* ── Page typography ──────────────────────────────────────────── */
+.page-title   { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+.page-sub     { color: var(--muted); margin-bottom: 16px; }
+.divider      { height: 1px; background: var(--border); margin: 12px 0 20px; }
+.section-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+
+/* ── Cards ────────────────────────────────────────────────────── */
+.card { background: var(--card); border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+.bal-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 20px; }
+.bal-card { background: var(--card); border-radius: 6px; padding: 16px 20px; position: relative; overflow: hidden; }
+.bal-card-label  { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+.bal-card-value  { font-size: 20px; font-weight: 700; }
+.bal-card-stripe { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; }
+
+/* ── Budget bar ───────────────────────────────────────────────── */
+.bbar-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.bbar        { height: 20px; border-radius: 4px; overflow: hidden; display: flex; background: var(--border); }
+.bbar-seg    { height: 100%; transition: width .3s; }
+.bbar-legend { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+/* ── Expense rows ─────────────────────────────────────────────── */
+.exp-row { background: var(--card); border-radius: 4px; padding: 12px 16px; display: flex; align-items: center; margin-bottom: 4px; }
+.exp-row-left  { flex: 1; }
+.exp-row-name  { font-weight: 600; }
+.exp-row-meta  { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.exp-row-right { text-align: right; }
+.exp-row-amt   { font-weight: 700; }
+.exp-row-freq  { color: var(--muted); font-size: 12px; }
+.exp-row-editing { outline: 1px solid var(--green); }
+.exp-row-actions { display: flex; gap: 4px; margin-left: 14px; }
+.icon-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px;
+            width: 30px; height: 30px; cursor: pointer; font-size: 14px; }
+.icon-btn:hover { color: var(--text); background: var(--hover); }
+.icon-btn-del:hover { color: var(--red); border-color: var(--red); }
+
+/* ── Toast ────────────────────────────────────────────────────── */
+.toast { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); z-index: 200;
+         padding: 10px 18px; border-radius: 6px; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+.toast-err { background: #3b1219; color: #fecaca; border: 1px solid var(--red); }
+.toast-ok  { background: #0f2a1a; color: #bbf7d0; border: 1px solid var(--green); }
+
+/* ── Form ─────────────────────────────────────────────────────── */
+.form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.fg       { display: flex; flex-direction: column; }
+.fg label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+
+/* ── Tabs ─────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+.tab { padding: 8px 20px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; font-family: inherit; border-radius: 4px; }
+.tab.active        { background: var(--green); color: #fff; }
+.tab:not(.active)  { background: var(--card);  color: var(--muted); }
+
+/* ── Result rows ──────────────────────────────────────────────── */
+.res-row { display: flex; justify-content: space-between; padding: 7px 0; font-size: 14px; }
+.res-row + .res-row { border-top: 1px solid var(--border); }
+.res-label { color: var(--muted); }
+
+/* ── Advisor output ───────────────────────────────────────────── */
+#advisor-out { background: var(--card); padding: 20px; border-radius: 6px; }
+.adv-row  { display: flex; justify-content: space-between; padding: 3px 0; }
+.adv-head { color: var(--green); font-weight: 700; margin: 10px 0 4px; }
+.adv-hr   { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
+.adv-table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; font-size: 13px; }
+.adv-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-align: left; padding: 4px 8px 6px 0;
+                text-transform: uppercase; letter-spacing: .03em; }
+.adv-table td { padding: 5px 8px 5px 0; border-top: 1px solid var(--border); }
+.adv-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.model-card { background: var(--card); border-radius: 6px; margin-top: 16px; }
+.model-card summary { padding: 14px 20px; cursor: pointer; font-weight: 600; color: var(--text); }
+.model-card-body { padding: 0 20px 16px; font-size: 13px; line-height: 1.55; overflow-x: auto; }
+.model-card-body p { margin: 0 0 10px; }
+.model-card-body a, #advisor-out a { color: var(--green); }
+
+/* ── Home plan result cards ───────────────────────────────────── */
+.hp-card { background: var(--card); border-radius: 6px; padding: 16px 20px; margin-bottom: 8px; }
+.hp-model-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.hp-detail-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.hp-detail-row + .hp-detail-row { border-top: 1px solid var(--border); }
+
+/* ── Chat panel ───────────────────────────────────────────────── */
+#chat-panel {
+  position: fixed; right: 0; top: 0; bottom: 0; width: 360px;
+  background: var(--sidebar); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; z-index: 100;
+}
+.chat-header { background: var(--card); padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.chat-header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.chat-msg { max-width: 90%; }
+.chat-msg-you  { align-self: flex-end; }
+.chat-msg-ai   { align-self: flex-start; }
+.chat-msg-name { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.chat-msg-you  .chat-msg-name { color: var(--green); text-align: right; }
+.chat-msg-ai   .chat-msg-name { color: var(--purple); }
+.chat-bubble {
+  padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; white-space: pre-wrap;
+}
+.chat-msg-you .chat-bubble { background: var(--hover); }
+.chat-msg-ai  .chat-bubble { background: var(--card); }
+.chat-input-area { padding: 12px; border-top: 1px solid var(--border); background: var(--card); }
+#chat-input { resize: none; height: 60px; font-size: 13px; }
+.chat-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+#chat-status { color: var(--muted); font-size: 12px; }
+
+/* ── Chat FAB ─────────────────────────────────────────────────── */
+#chat-fab {
+  position: fixed; bottom: 20px; right: 20px; z-index: 99;
+  width: 52px; height: 52px; border-radius: 50%; border: none;
+  background: var(--green); color: #fff; font-size: 22px;
+  cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+}
+#chat-fab:hover { background: #16a34a; }
+
+/* ── Onboarding ───────────────────────────────────────────────── */
+#onboarding { display: flex; align-items: center; justify-content: center; flex: 1; }
+.onb-card { background: var(--card); padding: 40px; width: 460px; border-radius: 8px; }
+.onb-title { color: var(--green); font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.onb-sub   { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+.onb-step  { color: var(--muted); font-size: 12px; margin-bottom: 4px; font-weight: 600; }
+
+/* ── Debt plan ────────────────────────────────────────────────── */
+.dt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0; }
+.dt-card { background: var(--card); border-radius: 6px; padding: 16px 20px; border: 1px solid transparent; }
+.dt-card.best { border-color: var(--green); }
+.dt-badge { font-size: 11px; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: .04em; }
+.dt-big { font-size: 22px; font-weight: 700; margin: 4px 0 2px; }
+.dt-order { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.chart-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+.chart-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+                             margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+/* ── Tips ─────────────────────────────────────────────────────── */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { background: var(--bg); border: 1px solid var(--border); color: var(--muted); border-radius: 999px;
+        padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.chip:hover { color: var(--text); border-color: var(--green); }
+.tip { background: var(--card); border-radius: 6px; padding: 14px 18px; margin-bottom: 8px; }
+.tip-q { font-weight: 600; margin-bottom: 6px; }
+.tip-a { color: #cbd5e1; font-size: 13px; line-height: 1.55; }
+
+/* ── Dashboard spending donut ─────────────────────────────────── */
+.spend-wrap { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.spend-legend { flex: 1; min-width: 200px; font-size: 13px; }
+.spend-legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.spend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.spend-legend-row .amt { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ── Account page ─────────────────────────────────────────────── */
+.acc-grid   { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.acc-grid .card { margin-bottom: 0; }
+.acc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 10px; }
+.acc-wide   { grid-column: 1 / -1; }
+.acc-hint   { font-size: 12px; }
+.acc-saved  { margin-left: 12px; font-size: 13px; }
+
+/* ── Utilities ────────────────────────────────────────────────── */
+.g  { color: var(--green);  }
+.r  { color: var(--red);    }
+.a  { color: var(--amber);  }
+.mu { color: var(--muted);  }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ AUTH ═══════════════════ -->
+<div id="auth" hidden>
+  <div class="auth-card">
+    <div class="auth-logo">PennyPath</div>
+    <div class="auth-sub">your money, understood.</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login"    onclick="switchTab('login')">Log In</button>
+      <button class="auth-tab"        id="tab-register" onclick="switchTab('register')">Sign Up</button>
+    </div>
+    <div class="field"><label>Username</label><input type="text"     id="a-user" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="a-pass" autocomplete="current-password"></div>
+    <div class="field" id="a-conf-wrap" hidden>
+      <label>Confirm Password</label>
+      <input type="password" id="a-conf" autocomplete="new-password">
+    </div>
+    <div class="err" id="a-err"></div>
+    <button class="btn btn-green btn-full" id="a-submit" onclick="submitAuth()">Log In</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ ONBOARDING ═══════════════════ -->
+<div id="onboarding" hidden>
+  <div class="onb-card">
+    <div class="onb-title">Welcome to PennyPath 👋</div>
+    <div class="onb-sub">Let's set up your financial profile. This takes less than a minute.</div>
+    <div class="field">
+      <div class="onb-step">STEP 1 OF 3</div>
+      <label>Weekly Income ($)</label>
+      <input type="number" id="onb-wage" placeholder="e.g. 800" min="0.01" step="0.01">
+      <div class="mu" style="font-size:11px;margin-top:4px">Your gross weekly take-home pay.</div>
+    </div>
+    <div class="field">
+      <div class="onb-step">STEP 2 OF 3</div>
+      <label>Current Savings ($)</label>
+      <input type="number" id="onb-savings" placeholder="e.g. 2500" min="0" step="0.01" value="0">
+      <div class="mu" style="font-size:11px;margin-top:4px">Total across all savings accounts.</div>
+    </div>
+    <div class="field">
+      <div class="onb-step">STEP 3 OF 3</div>
+      <label>Total Debt ($)</label>
+      <input type="number" id="onb-debt" placeholder="e.g. 15000" min="0" step="0.01" value="0">
+      <div class="mu" style="font-size:11px;margin-top:4px">Credit cards, loans, student debt, etc.</div>
+    </div>
+    <div class="err" id="onb-err"></div>
+    <button class="btn btn-green btn-full" onclick="submitOnboarding()">Get Started →</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ APP ═══════════════════ -->
+<div id="app" hidden>
+
+  <aside id="sidebar">
+    <div class="sidebar-logo">PennyPath</div>
+    <div class="sidebar-user" id="sb-user"></div>
+    <div class="sidebar-hr"></div>
+    <div class="nav-item" data-page="dashboard"     onclick="navigate('dashboard')">📊  Dashboard</div>
+    <div class="nav-item" data-page="expenses"      onclick="navigate('expenses')">💸  Expenses</div>
+    <div class="nav-item" data-page="affordability" onclick="navigate('affordability')">🏦  Affordability</div>
+    <div class="nav-item" data-page="advisor"       onclick="navigate('advisor')">🤖  Budget AI</div>
+    <div class="nav-item" data-page="home"          onclick="navigate('home')">🏠  Home Plan</div>
+    <div class="nav-item" data-page="debt"          onclick="navigate('debt')">💳  Debt Plan</div>
+    <div class="nav-item" data-page="tips"          onclick="navigate('tips')">💡  Tips</div>
+    <div class="sidebar-spacer"></div>
+    <div class="nav-item" data-page="account"       onclick="navigate('account')">👤  Account</div>
+    <div class="sidebar-hr"></div>
+    <div class="sidebar-foot">
+      <button class="btn btn-muted btn-full" onclick="logout()">Log Out</button>
+    </div>
+  </aside>
+
+  <main id="content">
+
+    <!-- ── Dashboard ──────────────────────────────────── -->
+    <div id="page-dashboard" hidden>
+      <div class="page-title" id="d-greet">Dashboard</div>
+      <div class="divider"></div>
+      <div class="bal-grid">
+        <div class="bal-card"><div class="bal-card-label">Checking</div><div class="bal-card-value g" id="d-checking">$0.00</div><div class="bal-card-stripe" style="background:var(--green)"></div></div>
+        <div class="bal-card"><div class="bal-card-label">Savings</div><div class="bal-card-value" style="color:var(--purple)" id="d-savings">$0.00</div><div class="bal-card-stripe" style="background:var(--purple)"></div></div>
+        <div class="bal-card"><div class="bal-card-label">Monthly Income</div><div class="bal-card-value g" id="d-income">$0.00</div><div class="bal-card-stripe" style="background:var(--green)"></div></div>
+        <div class="bal-card"><div class="bal-card-label">Total Debt</div><div class="bal-card-value r" id="d-debt">$0.00</div><div class="bal-card-stripe" style="background:var(--red)"></div></div>
+        <div class="bal-card"><div class="bal-card-label">Total Needs</div><div class="bal-card-value a" id="d-needs">$0.00</div><div class="bal-card-stripe" style="background:var(--amber)"></div></div>
+        <div class="bal-card"><div class="bal-card-label">Total Wants</div><div class="bal-card-value r" id="d-wants">$0.00</div><div class="bal-card-stripe" style="background:var(--red)"></div></div>
+      </div>
+      <div class="card">
+        <div class="bbar-header">
+          <span style="font-weight:600">📈 Budget Breakdown</span>
+          <span id="d-status" class="mu"></span>
+        </div>
+        <div class="bbar">
+          <div class="bbar-seg" id="b-needs" style="background:var(--amber)"></div>
+          <div class="bbar-seg" id="b-wants" style="background:var(--red)"></div>
+          <div class="bbar-seg" id="b-saved" style="background:var(--green)"></div>
+        </div>
+        <div class="bbar-legend" id="d-legend"></div>
+      </div>
+      <div class="card" id="d-spend-card" hidden>
+        <div style="font-weight:600;margin-bottom:12px">🍩 Where Your Money Goes</div>
+        <div class="spend-wrap"><div id="d-donut"></div><div class="spend-legend" id="d-spend-legend"></div></div>
+      </div>
+      <div class="section-title" style="margin-top:4px">🧾 Recent Expenses</div>
+      <div id="d-recent"></div>
+    </div>
+
+    <!-- ── Expenses ───────────────────────────────────── -->
+    <div id="page-expenses" hidden>
+      <div class="page-title">Expenses</div>
+      <div class="page-sub">Log your needs and wants.</div>
+      <div class="divider"></div>
+      <div class="tabs">
+        <button class="tab active" id="et-needs" onclick="switchExpTab('needs')">Needs</button>
+        <button class="tab"        id="et-wants" onclick="switchExpTab('wants')">Wants</button>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px" id="e-form-title">Add Expense</div>
+        <div class="form-row">
+          <div class="fg" style="flex:1"><label>Name</label><input type="text" id="e-name" placeholder="Expense name"></div>
+          <div class="fg"><label>Amount ($)</label><input type="number" id="e-amt" placeholder="0.00" min="0.01" step="0.01" style="width:110px"></div>
+          <div class="fg"><label>Frequency</label><select id="e-freq" style="width:130px"><option>Monthly</option><option>Weekly</option><option>Biweekly</option><option>One Time</option></select></div>
+          <div class="fg"><label>Subcategory</label><select id="e-sub" style="width:160px"></select></div>
+          <button class="btn btn-green" style="align-self:flex-end" id="e-submit" onclick="addExpense()">+ Add</button>
+          <button class="btn btn-muted" style="align-self:flex-end" id="e-cancel" hidden onclick="cancelEditExpense()">Cancel</button>
+        </div>
+        <div class="err" id="e-err" style="margin-top:8px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-weight:600" id="e-total">Total: $0.00/mo</span>
+        <button class="btn btn-red" onclick="clearExpenses()">Clear All</button>
+      </div>
+      <div id="e-list"></div>
+    </div>
+
+    <!-- ── Affordability ──────────────────────────────── -->
+    <div id="page-affordability" hidden>
+      <div class="page-title">Affordability Check</div>
+      <div class="page-sub">Find out if you can handle that loan.</div>
+      <div class="divider"></div>
+      <div class="card" style="max-width:440px">
+        <div class="field"><label>Monthly Income ($)</label><input type="number" id="af-inc" placeholder="0.00"></div>
+        <div class="field"><label>Loan / Item Price ($)</label><input type="number" id="af-amt" placeholder="0.00"></div>
+        <div class="field"><label>Annual Interest Rate (%)</label><input type="number" id="af-rate" placeholder="6.5" step="0.1"></div>
+        <div class="field"><label>Loan Duration (months)</label><input type="number" id="af-mo" placeholder="60"></div>
+        <div class="err" id="af-err"></div>
+        <button class="btn btn-green btn-full" onclick="checkAffordability()">Check Affordability</button>
+      </div>
+      <div id="af-result"></div>
+    </div>
+
+    <!-- ── Budget AI ──────────────────────────────────── -->
+    <div id="page-advisor" hidden>
+      <div class="page-title">Budget AI</div>
+      <div class="page-sub">Compare your spending with thrifty households like yours.</div>
+      <div class="divider"></div>
+      <button class="btn btn-green" style="margin-bottom:16px" onclick="runAdvisor()">▶ Run Analysis</button>
+      <div id="advisor-out" hidden></div>
+      <details class="model-card">
+        <summary>🔬 How this model works &amp; how well it performs</summary>
+        <div id="advisor-card" class="model-card-body"><span class="mu">Loading…</span></div>
+      </details>
+    </div>
+
+    <!-- ── Home Plan ──────────────────────────────────── -->
+    <div id="page-home" hidden>
+      <div class="page-title">Home Savings Plan</div>
+      <div class="page-sub">ML forecast of home prices + your savings roadmap.</div>
+      <div class="divider"></div>
+
+      <div class="card" style="max-width:600px">
+        <div class="form-row" style="margin-bottom:14px">
+          <div class="fg" style="flex:1">
+            <label>Region</label>
+            <select id="hp-region">
+              <option value="MSPUS">United States</option>
+              <option value="MSPNE">Northeast</option>
+              <option value="MSPMW">Midwest</option>
+              <option value="MSPS">South</option>
+              <option value="MSPW">West</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Target Year</label>
+            <input type="number" id="hp-year" style="width:110px">
+          </div>
+        </div>
+        <div class="form-row" style="margin-bottom:14px">
+          <div class="fg" style="flex:1">
+            <label>Down Payment %</label>
+            <select id="hp-dp">
+              <option value="0.03">3% — Conventional (PMI)</option>
+              <option value="0.05">5% — Low down payment</option>
+              <option value="0.10">10% — Moderate</option>
+              <option value="0.20" selected>20% — Avoid PMI (recommended)</option>
+              <option value="0.25">25% — Strong equity</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Current Savings ($)</label>
+            <input type="number" id="hp-savings" placeholder="0.00" style="width:150px">
+          </div>
+        </div>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="fg">
+            <label>Interest Rate (%)</label>
+            <input type="number" id="hp-rate" value="6.5" step="0.1" style="width:130px">
+          </div>
+          <div class="fg">
+            <label>Loan Term (years)</label>
+            <select id="hp-term" style="width:130px">
+              <option value="10">10 years</option>
+              <option value="15">15 years</option>
+              <option value="20">20 years</option>
+              <option value="30" selected>30 years</option>
+            </select>
+          </div>
+          <button class="btn btn-green" style="align-self:flex-end" onclick="calcHomePlan()">Calculate</button>
+        </div>
+        <div class="err" id="hp-err"></div>
+      </div>
+
+      <div id="hp-result"></div>
+      <details class="model-card">
+        <summary>🔬 How the forecast works &amp; how well it performs</summary>
+        <div id="home-card" class="model-card-body"><span class="mu">Loading…</span></div>
+      </details>
+    </div>
+
+    <!-- ── Debt Plan ──────────────────────────────────── -->
+    <div id="page-debt" hidden>
+      <div class="page-title">Debt Payoff Plan</div>
+      <div class="page-sub">Compare the avalanche and snowball strategies on your actual debts.</div>
+      <div class="divider"></div>
+
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px">Add a Debt</div>
+        <div class="form-row">
+          <div class="fg" style="flex:1;min-width:140px"><label>Name</label><input type="text" id="dt-name" maxlength="60" placeholder="e.g. Visa card"></div>
+          <div class="fg"><label>Balance ($)</label><input type="number" id="dt-bal" min="0.01" step="0.01" style="width:120px"></div>
+          <div class="fg"><label>APR (%)</label><input type="number" id="dt-apr" min="0" max="100" step="0.01" style="width:90px"></div>
+          <div class="fg"><label>Min. payment ($/mo)</label><input type="number" id="dt-min" min="0.01" step="0.01" style="width:130px"></div>
+          <button class="btn btn-green" style="align-self:flex-end" onclick="addDebt()">+ Add</button>
+        </div>
+        <div class="err" id="dt-err" style="margin-top:8px"></div>
+      </div>
+
+      <div id="dt-list"></div>
+
+      <div class="card" id="dt-plan-card" style="margin-top:12px" hidden>
+        <div class="form-row">
+          <div class="fg"><label>Extra payment on top of minimums ($/mo)</label>
+            <input type="number" id="dt-extra" min="0" step="1" value="100" style="width:200px"></div>
+          <button class="btn btn-green" style="align-self:flex-end" onclick="runDebtPlan()">Compare Strategies</button>
+        </div>
+        <div class="err" id="dt-plan-err" style="margin-top:8px"></div>
+      </div>
+      <div id="dt-result"></div>
+    </div>
+
+    <!-- ── Tips ───────────────────────────────────────── -->
+    <div id="page-tips" hidden>
+      <div class="page-title">Financial Tips</div>
+      <div class="page-sub" id="tips-sub">Search PennyPath's library of personal-finance answers.</div>
+      <div class="divider"></div>
+      <div class="card">
+        <input type="search" id="tips-q" placeholder="e.g. how big should my emergency fund be?" autocomplete="off">
+        <div class="chips" id="tips-chips"></div>
+      </div>
+      <div id="tips-results"></div>
+    </div>
+
+    <!-- ── Account ────────────────────────────────────── -->
+    <div id="page-account" hidden>
+      <div class="page-title">Account</div>
+      <div class="page-sub" id="acc-sub">Manage your profile, income, and password.</div>
+      <div class="divider"></div>
+
+      <div class="acc-grid">
+        <div class="card">
+          <div class="section-title">👤 Profile</div>
+          <div class="mu acc-hint">Helps PennyPath AI tailor advice to your situation.</div>
+          <div class="acc-fields">
+            <div class="fg acc-wide"><label>Full Name</label><input type="text" id="p-name" maxlength="100" autocomplete="name"></div>
+            <div class="fg"><label>Age</label><input type="number" id="p-age" min="13" max="120" step="1"></div>
+            <div class="fg"><label>Household Size</label><input type="number" id="p-house" min="1" max="20" step="1"></div>
+            <div class="fg acc-wide"><label>Email</label><input type="email" id="p-email" maxlength="254" autocomplete="email"></div>
+            <div class="fg"><label>Occupation</label><input type="text" id="p-job" maxlength="100"></div>
+            <div class="fg"><label>State</label><input type="text" id="p-state" maxlength="50" placeholder="e.g. Texas"></div>
+            <div class="fg"><label>Main Financial Goal</label>
+              <select id="p-goal">
+                <option value="">— Select —</option>
+                <option value="build emergency fund">Build an emergency fund</option>
+                <option value="pay off debt">Pay off debt</option>
+                <option value="buy a home">Buy a home</option>
+                <option value="save for retirement">Save for retirement</option>
+                <option value="grow investments">Grow investments</option>
+                <option value="save for education">Save for education</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="fg"><label>Investing Risk Tolerance</label>
+              <select id="p-risk">
+                <option value="">— Select —</option>
+                <option value="conservative">Conservative</option>
+                <option value="moderate">Moderate</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </div>
+          </div>
+          <div class="err" id="p-err"></div>
+          <button class="btn btn-green" onclick="saveProfile()">Save Profile</button>
+          <span class="g acc-saved" id="p-ok"></span>
+        </div>
+
+        <div class="card">
+          <div class="section-title">💵 Income &amp; Balances</div>
+          <div class="mu acc-hint">Updates your dashboard, Budget AI, and Home Plan.</div>
+          <div class="acc-fields">
+            <div class="fg"><label>Pay Amount ($)</label><input type="number" id="f-pay" min="0.01" step="0.01"></div>
+            <div class="fg"><label>Paid</label>
+              <select id="f-freq" onchange="updatePayPreview()">
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every 2 weeks</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly (salary)</option>
+              </select>
+            </div>
+            <div class="fg"><label>Checking ($)</label><input type="number" id="f-checking" min="0" step="0.01"></div>
+            <div class="fg"><label>Savings ($)</label><input type="number" id="f-savings" min="0" step="0.01"></div>
+            <div class="fg"><label>Total Debt ($) <a href="#" onclick="navigate('debt');return false" style="color:var(--green)">itemize →</a></label><input type="number" id="f-debt" min="0" step="0.01"></div>
+          </div>
+          <div class="mu acc-hint" id="f-preview"></div>
+          <div class="err" id="f-err"></div>
+          <button class="btn btn-green" onclick="saveFinances()">Save Income &amp; Balances</button>
+          <span class="g acc-saved" id="f-ok"></span>
+        </div>
+
+        <div class="card">
+          <div class="section-title">🔒 Change Password</div>
+          <div class="acc-fields">
+            <div class="fg acc-wide"><label>Current Password</label><input type="password" id="pw-cur" autocomplete="current-password"></div>
+            <div class="fg"><label>New Password</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+            <div class="fg"><label>Confirm New Password</label><input type="password" id="pw-conf" autocomplete="new-password"></div>
+          </div>
+          <div class="err" id="pw-err"></div>
+          <button class="btn btn-green" onclick="changePassword()">Update Password</button>
+          <span class="g acc-saved" id="pw-ok"></span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══════════════════ CHAT PANEL ═══════════════════ -->
+<div id="chat-panel" hidden>
+  <div class="chat-header">
+    <div class="chat-header-top">
+      <span style="color:var(--green);font-weight:700;font-size:15px">💬 Finance Chat</span>
+      <button onclick="toggleChat()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <div class="mu" style="font-size:11px">Powered by Ollama · personalised to your finances</div>
+  </div>
+  <div id="chat-messages"></div>
+  <div class="chat-input-area">
+    <textarea id="chat-input" placeholder="Ask anything about your budget…"></textarea>
+    <div class="chat-footer">
+      <span id="chat-status"></span>
+      <button class="btn btn-green" id="chat-send" onclick="sendChat()">Send ➤</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- Chat FAB (floating action button) -->
+<button id="chat-fab" hidden onclick="toggleChat()">💬</button>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────────
+const NEEDS_SUBS = ['groceries','rent/mortgage','utilities','gas/transport',
+                    'insurance','bills','healthcare','childcare','other'];
+const WANTS_SUBS = ['dining out','entertainment','shopping','subscriptions',
+                    'hobbies','travel','personal care','gifts','other'];
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let user = null, curPage = null, expTab = 'needs';
+let chatHistory = [], chatOpen = false, lastSession = null;
+
+// ── API helper ─────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401 && user && !path.startsWith('/api/auth/')) {
+    // Session expired mid-use: return to the login screen instead of leaving a broken page.
+    showToast('Your session expired — please log in again.');
+    resetToLogin();
+  }
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+
+const fmt = n => '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const fmt0 = n => '$' + Math.round(Number(n)).toLocaleString('en-US');   // whole dollars for big figures
+// Escape user-supplied text before it goes into innerHTML (prevents script injection).
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cap = s => esc(s ? s[0].toUpperCase() + s.slice(1) : '');
+
+function showToast(msg, kind = 'err') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast toast-' + kind;
+  t.hidden = false;
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => { t.hidden = true; }, 3500);
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────────
+let authMode = 'login';
+
+function switchTab(mode) {
+  authMode = mode;
+  const isLogin = mode === 'login';
+  document.getElementById('tab-login').classList.toggle('active', isLogin);
+  document.getElementById('tab-register').classList.toggle('active', !isLogin);
+  document.getElementById('a-conf-wrap').hidden = isLogin;
+  document.getElementById('a-submit').textContent = isLogin ? 'Log In' : 'Create Account';
+  document.getElementById('a-err').textContent = '';
+}
+
+async function submitAuth() {
+  const u = document.getElementById('a-user').value.trim();
+  const p = document.getElementById('a-pass').value;
+  const c = document.getElementById('a-conf').value;
+  const errEl = document.getElementById('a-err');
+  errEl.textContent = '';
+  try {
+    user = authMode === 'login'
+      ? await api('POST', '/api/auth/login',    {username:u, password:p})
+      : await api('POST', '/api/auth/register', {username:u, password:p, confirm:c});
+    if (!user.onboarded) showOnboarding(); else showApp();
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+async function logout() {
+  await api('POST', '/api/auth/logout').catch(() => {});
+  resetToLogin();
+}
+
+function resetToLogin() {
+  user = null; chatHistory = []; lastSession = null;
+  document.getElementById('chat-messages').innerHTML = '';
+  if (chatOpen) toggleChat();
+  document.getElementById('app').hidden = true;
+  document.getElementById('chat-fab').hidden = true;
+  document.getElementById('onboarding').hidden = true;
+  document.getElementById('auth').hidden = false;
+  ['a-user','a-pass','a-conf'].forEach(id => document.getElementById(id).value = '');
+  switchTab('login');
+}
+
+// ── App init ───────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    user = await api('GET', '/api/auth/me');
+    if (!user.onboarded) showOnboarding(); else showApp();
+  } catch { document.getElementById('auth').hidden = false; }
+}
+
+function showOnboarding() {
+  document.getElementById('auth').hidden = true;
+  document.getElementById('onboarding').hidden = false;
+}
+
+async function submitOnboarding() {
+  const errEl = document.getElementById('onb-err');
+  errEl.textContent = '';
+  const wage    = parseFloat(document.getElementById('onb-wage').value);
+  const savings = parseFloat(document.getElementById('onb-savings').value) || 0;
+  const debt    = parseFloat(document.getElementById('onb-debt').value)    || 0;
+  if (!(wage > 0)) { errEl.textContent = 'Enter a valid weekly income.'; return; }
+  try {
+    await api('POST', '/api/onboarding', {wage, savings, debt});
+    user.onboarded = true;
+    document.getElementById('onboarding').hidden = true;
+    showApp();
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+function showApp() {
+  document.getElementById('auth').hidden = true;
+  document.getElementById('onboarding').hidden = true;
+  document.getElementById('app').hidden = false;
+  document.getElementById('chat-fab').hidden = false;
+  document.getElementById('sb-user').textContent = '@' + user.username;
+  navigate('dashboard');
+  appendChatMsg('ai', 'PennyPath AI',
+    "Hey! I'm your AI finance assistant. Ask me anything about budgeting, saving, or debt — I'll personalise advice based on your real numbers!");
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────────
+const PAGE_LOADERS = {
+  dashboard: loadDashboard, expenses: loadExpenses,
+  affordability: loadAffordability, home: loadHome, account: loadAccount,
+  advisor: loadAdvisor, debt: loadDebt, tips: loadTips,
+};
+
+function navigate(page) {
+  if (curPage) document.getElementById('page-' + curPage).hidden = true;
+  document.querySelectorAll('.nav-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.page === page));
+  curPage = page;
+  document.getElementById('page-' + page).hidden = false;
+  if (PAGE_LOADERS[page]) PAGE_LOADERS[page]().catch(e => showToast(e.message));
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  const [d, p] = await Promise.all([api('GET', '/api/session'), api('GET', '/api/profile')]);
+  lastSession = d;
+  const income = d.wage * 52 / 12;
+  const firstName = (p.profile.full_name || '').split(' ')[0];
+  document.getElementById('d-greet').textContent    = '💰 Hey, ' + (firstName || user.username) + '!';
+  document.getElementById('d-checking').textContent = fmt(d.checking);
+  document.getElementById('d-savings').textContent  = fmt(d.savings);
+  document.getElementById('d-income').textContent   = fmt(income);
+  document.getElementById('d-debt').textContent     = fmt(d.debt);
+  document.getElementById('d-needs').textContent    = fmt(d.needs_total);
+  document.getElementById('d-wants').textContent    = fmt(d.wants_total);
+
+  const total = d.needs_total + d.wants_total;
+  const denom = income > 0 ? income : Math.max(total, 1);
+  const np = Math.min(d.needs_total / denom * 100, 100);
+  const wp = Math.min(d.wants_total / denom * 100, 100 - np);
+  document.getElementById('b-needs').style.width = np + '%';
+  document.getElementById('b-wants').style.width = wp + '%';
+  document.getElementById('b-saved').style.width = Math.max(0, 100 - np - wp) + '%';
+
+  const saved = income - total;
+  document.getElementById('d-legend').textContent =
+    `Needs  ${fmt(d.needs_total)}   |   Wants  ${fmt(d.wants_total)}   |   Saved  ${fmt(saved)}`;
+
+  const stEl = document.getElementById('d-status');
+  if (income <= 0)           { stEl.textContent = 'Set your wage to see insights.';      stEl.className = 'mu'; }
+  else if (saved < 0)        { stEl.textContent = 'Spending exceeds income!';            stEl.className = 'r'; }
+  else if (saved/income < .1){ stEl.textContent = 'Tight budget — try trimming wants';  stEl.className = 'a'; }
+  else                       { stEl.textContent = `Saving ${Math.round(saved/income*100)}% of income`; stEl.className = 'g'; }
+
+  renderSpendingDonut(d.expenses);
+
+  const el = document.getElementById('d-recent');
+  el.innerHTML = '';
+  const recent = d.expenses.slice(-5).reverse();
+  if (!recent.length) { el.innerHTML = '<div class="mu" style="padding:12px 0">No expenses logged yet.</div>'; return; }
+  recent.forEach(e => {
+    const accent = e.category === 'needs' ? 'var(--amber)' : 'var(--red)';
+    el.innerHTML += `<div class="exp-row">
+      <div class="exp-row-left"><div class="exp-row-name">${cap(e.name)}</div><div class="exp-row-meta">${cap(e.subcategory)}</div></div>
+      <div class="exp-row-right"><div class="exp-row-amt" style="color:${accent}">${fmt(e.monthly)}/mo</div></div>
+    </div>`;
+  });
+}
+
+const DONUT_COLORS = ['#22c55e', '#a855f7', '#f59e0b', '#3b82f6', '#ec4899', '#14b8a6', '#64748b'];
+
+function renderSpendingDonut(expenses) {
+  // Group monthly spending by subcategory; top 6 slices + "everything else".
+  const by = {};
+  expenses.forEach(e => {
+    const key = e.subcategory === 'other' ? `other (${e.category})` : e.subcategory;
+    by[key] = (by[key] || 0) + e.monthly;
+  });
+  let rows = Object.entries(by).sort((a, b) => b[1] - a[1]);
+  if (rows.length > 7) rows = [...rows.slice(0, 6), ['everything else', rows.slice(6).reduce((s, r) => s + r[1], 0)]];
+  const total = rows.reduce((s, r) => s + r[1], 0);
+  document.getElementById('d-spend-card').hidden = total <= 0;
+  if (total <= 0) return;
+
+  const R = 60, C = 2 * Math.PI * R;
+  let offset = 0, arcs = '';
+  rows.forEach(([, v], i) => {
+    const len = C * v / total;
+    arcs += `<circle r="${R}" cx="80" cy="80" fill="none" stroke="${DONUT_COLORS[i]}" stroke-width="26"
+      stroke-dasharray="${Math.max(0, len - 1.5)} ${C}" stroke-dashoffset="${-offset}" transform="rotate(-90 80 80)"/>`;
+    offset += len;
+  });
+  document.getElementById('d-donut').innerHTML = `<svg width="160" height="160" viewBox="0 0 160 160" role="img"
+      aria-label="Monthly spending by category">${arcs}
+    <text x="80" y="76" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700">${fmt(total).replace(/\.\d+$/, '')}</text>
+    <text x="80" y="94" text-anchor="middle" fill="#64748b" font-size="11">per month</text></svg>`;
+  document.getElementById('d-spend-legend').innerHTML = rows.map(([k, v], i) => `
+    <div class="spend-legend-row"><span class="spend-swatch" style="background:${DONUT_COLORS[i]}"></span>
+      <span>${cap(k)}</span><span class="mu" style="font-size:12px">${Math.round(v / total * 100)}%</span>
+      <span class="amt">${fmt(v)}</span></div>`).join('');
+}
+
+// ── Expenses ───────────────────────────────────────────────────────────────────
+function switchExpTab(tab) {
+  if (editingExpenseId !== null && tab !== expTab) resetExpenseForm();
+  expTab = tab;
+  document.getElementById('et-needs').classList.toggle('active', tab === 'needs');
+  document.getElementById('et-wants').classList.toggle('active', tab === 'wants');
+  const subs = tab === 'needs' ? NEEDS_SUBS : WANTS_SUBS;
+  document.getElementById('e-sub').innerHTML = subs.map(s => `<option>${s}</option>`).join('');
+  renderExpenses();
+}
+async function loadExpenses() { resetExpenseForm(); switchExpTab(expTab); }
+
+async function renderExpenses() {
+  const { expenses } = await api('GET', '/api/expenses');
+  const fil   = expenses.filter(e => e.category === expTab);
+  const total = fil.reduce((s, e) => s + e.monthly, 0);
+  document.getElementById('e-total').textContent =
+    `${expTab === 'needs' ? 'Needs' : 'Wants'} total:  ${fmt(total)}/mo`;
+  const el = document.getElementById('e-list');
+  el.innerHTML = '';
+  if (!fil.length) { el.innerHTML = '<div class="mu" style="padding:12px 0">No expenses yet. Add one above!</div>'; return; }
+  const accent = expTab === 'needs' ? 'var(--amber)' : 'var(--red)';
+  expenseCache = Object.fromEntries(fil.map(e => [e.id, e]));
+  fil.forEach(e => {
+    el.innerHTML += `<div class="exp-row${e.id === editingExpenseId ? ' exp-row-editing' : ''}">
+      <div class="exp-row-left"><div class="exp-row-name">${cap(e.name)}</div><div class="exp-row-meta">${cap(e.subcategory)} · ${esc(e.freq)}</div></div>
+      <div class="exp-row-right"><div class="exp-row-amt" style="color:${accent}">${fmt(e.monthly)}/mo</div><div class="exp-row-freq">${fmt(e.amount)} ${esc(e.freq)}</div></div>
+      <div class="exp-row-actions">
+        <button class="icon-btn" title="Edit" aria-label="Edit expense" onclick="startEditExpense(${e.id})">✎</button>
+        <button class="icon-btn icon-btn-del" title="Delete" aria-label="Delete expense" onclick="deleteExpense(${e.id})">✕</button>
+      </div>
+    </div>`;
+  });
+}
+
+let editingExpenseId = null, expenseCache = {};
+
+function startEditExpense(id) {
+  const e = expenseCache[id];
+  if (!e) return;
+  editingExpenseId = id;
+  document.getElementById('e-name').value = e.name;
+  document.getElementById('e-amt').value  = e.amount;
+  document.getElementById('e-freq').value = e.freq;
+  document.getElementById('e-sub').value  = e.subcategory;
+  document.getElementById('e-submit').textContent = 'Save';
+  document.getElementById('e-cancel').hidden = false;
+  document.getElementById('e-form-title').textContent = 'Edit Expense';
+  document.getElementById('e-name').focus();
+  renderExpenses();
+}
+
+function resetExpenseForm() {
+  editingExpenseId = null;
+  document.getElementById('e-name').value = '';
+  document.getElementById('e-amt').value  = '';
+  document.getElementById('e-submit').textContent = '+ Add';
+  document.getElementById('e-cancel').hidden = true;
+  document.getElementById('e-form-title').textContent = 'Add Expense';
+  document.getElementById('e-err').textContent = '';
+}
+
+function cancelEditExpense() {
+  resetExpenseForm();
+  renderExpenses();
+}
+
+async function addExpense() {
+  const errEl = document.getElementById('e-err');
+  errEl.textContent = '';
+  const name = document.getElementById('e-name').value.trim();
+  const amount = parseFloat(document.getElementById('e-amt').value);
+  const freq = document.getElementById('e-freq').value;
+  const sub  = document.getElementById('e-sub').value;
+  if (!name)         { errEl.textContent = 'Name is required.'; return; }
+  if (!(amount > 0)) { errEl.textContent = 'Enter a valid positive amount.'; return; }
+  const body = {category:expTab, subcategory:sub, name, amount, frequency:freq};
+  try {
+    if (editingExpenseId !== null) {
+      await api('PUT', `/api/expenses/${editingExpenseId}`, body);
+      showToast('Expense updated', 'ok');
+      cancelEditExpense();
+    } else {
+      await api('POST', '/api/expenses', body);
+      document.getElementById('e-name').value = '';
+      document.getElementById('e-amt').value  = '';
+      renderExpenses();
+    }
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+async function deleteExpense(id) {
+  const e = expenseCache[id];
+  if (!confirm(`Delete "${e ? e.name : 'this expense'}"?`)) return;
+  try {
+    await api('DELETE', `/api/expenses/${id}`);
+    if (editingExpenseId === id) cancelEditExpense(); else renderExpenses();
+  } catch(err) { showToast(err.message); }
+}
+
+async function clearExpenses() {
+  if (!confirm('Delete all expenses?')) return;
+  await api('DELETE', '/api/expenses');
+  renderExpenses();
+}
+
+// ── Affordability ──────────────────────────────────────────────────────────────
+async function loadAffordability() {
+  const d = await api('GET', '/api/session');
+  if (d.wage > 0) document.getElementById('af-inc').value = (d.wage * 52 / 12).toFixed(2);
+}
+
+async function checkAffordability() {
+  const errEl = document.getElementById('af-err');
+  errEl.textContent = '';
+  try {
+    const d = await api('POST', '/api/affordability', {
+      income: parseFloat(document.getElementById('af-inc').value),
+      amount: parseFloat(document.getElementById('af-amt').value),
+      rate:   parseFloat(document.getElementById('af-rate').value),
+      months: parseInt(document.getElementById('af-mo').value),
+    });
+    const color = d.affordable ? 'var(--green)' : 'var(--red)';
+    document.getElementById('af-result').innerHTML = `
+      <div class="card" style="max-width:440px;margin-top:16px">
+        <div style="font-size:18px;font-weight:700;color:${color};margin-bottom:12px">
+          ${d.affordable ? '✓  You can afford this loan!' : '✗  Cannot afford this loan.'}
+        </div>
+        <div class="res-row"><span class="res-label">Monthly Payment</span><span style="font-weight:700;color:${color}">${fmt(d.monthly_payment)}</span></div>
+        <div class="res-row"><span class="res-label">Max Allowable (36% rule)</span><span>${fmt(d.max_allowable)}</span></div>
+        <div class="res-row"><span class="res-label">Your Monthly Income</span><span>${fmt(d.income)}</span></div>
+      </div>`;
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+// ── Budget AI ──────────────────────────────────────────────────────────────────
+async function runAdvisor() {
+  const out = document.getElementById('advisor-out');
+  out.hidden = false;
+  out.innerHTML = '<span class="mu">Running analysis…</span>';
+  try {
+    const r = await api('GET', '/api/advisor');
+    const pct = Math.round(r.quantile * 100);
+    const row = (label, peers, you, rule, goodHigh=false) => {
+      const over = goodHigh ? you < peers : you > peers;
+      return `<tr><td>${label}</td><td class="num mu">${fmt(rule)}</td><td class="num">${fmt(peers)}</td>
+        <td class="num ${over ? 'r' : 'g'}">${fmt(you)}</td></tr>`;
+    };
+    let html = `<div class="adv-head">Compared with thrifty peers</div>
+      <div class="mu" style="font-size:12px;margin-bottom:10px">
+        What the thriftiest ${pct}% of households like yours spend — earning ${fmt(r.monthly_income)}/mo,
+        household of ${r.household_size}, age ${r.age}.
+        ${r.used_defaults ? '<br>Add your age and household size on the <a href="#" onclick="navigate(\'account\');return false">Account page</a> for closer peers.' : ''}
+      </div>
+      <table class="adv-table">
+        <thead><tr><th></th><th class="num">50/30/20 rule</th><th class="num">Thrifty peers</th><th class="num">You</th></tr></thead>
+        <tbody>
+          ${row('Needs',   r.rec_needs,   r.actual_needs,   r.base_needs)}
+          ${row('Wants',   r.rec_wants,   r.actual_wants,   r.base_wants)}
+          ${row('Savings', r.rec_savings, r.actual_savings, r.base_savings, true)}
+        </tbody>
+      </table>`;
+    const used = r.subcategories.filter(s => s.actual > 0);
+    if (used.length) {
+      html += `<div class="adv-head">By category</div><table class="adv-table"><thead><tr><th></th>
+        <th class="num">Thrifty peers</th><th class="num">You</th></tr></thead><tbody>`;
+      used.forEach(s => {
+        const name = cap(s.subcategory) + (s.subcategory === 'other' ? ` (${s.category})` : '');
+        html += `<tr><td>${name}</td><td class="num">${fmt(s.recommended)}</td>
+          <td class="num ${s.actual > s.recommended * OVER_TOLERANCE ? 'r' : 'g'}">${fmt(s.actual)}</td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+    html += '<div class="adv-head">Insights</div>';
+    const insights = [];
+    if (r.actual_needs > r.rec_needs) insights.push(['r', `Needs are ${fmt(r.actual_needs - r.rec_needs)} above thrifty peers.`]);
+    if (r.actual_wants > r.rec_wants) insights.push(['r', `Wants are ${fmt(r.actual_wants - r.rec_wants)} above thrifty peers.`]);
+    if (r.actual_savings < r.rec_savings) insights.push(['a', `Savings are ${fmt(r.rec_savings - r.actual_savings)} below thrifty peers — try automating a recurring transfer.`]);
+    used.filter(s => s.actual > s.recommended * OVER_TOLERANCE && s.tip)
+        .forEach(s => insights.push(['a', `${cap(s.subcategory)}: ${fmt(s.actual - s.recommended)} over. ${esc(s.tip)}`]));
+    if (!insights.length) insights.push(['g', "You're at or below thrifty peers in every category — great job!"]);
+    if (r.rec_savings < 0) insights.push(['mu', 'Even thrifty households at this income tend to spend more than they earn — growing income may matter more than cutting.']);
+    html += insights.map(([cls, text]) => `<div class="${cls}" style="padding:3px 0">${text}</div>`).join('');
+    out.innerHTML = html;
+  } catch(e) { out.innerHTML = `<span class="r">Error: ${esc(e.message)}</span>`; }
+}
+
+const OVER_TOLERANCE = 1.05;   // only flag categories more than 5% above peers
+
+// ── Model cards ────────────────────────────────────────────────────────────────
+let modelCards = null;
+async function getModelCards() {
+  if (!modelCards) modelCards = await api('GET', '/api/models');
+  return modelCards;
+}
+
+async function loadAdvisor() {
+  const el = document.getElementById('advisor-card');
+  if (el.dataset.loaded) return;
+  const b = (await getModelCards()).budget;
+  const counts = Object.entries(b.model_counts).map(([m, n]) => `${n}× ${esc(m)}`).join(', ');
+  const tot = b.totals;
+  el.innerHTML = `
+    <p>Trained on <b>${b.rows.toLocaleString()}</b> synthetic households (${b.train_rows.toLocaleString()} train /
+      ${b.test_rows.toLocaleString()} held-out test) whose spending follows Engel's law — necessities take a
+      smaller share of income as income rises. Features: ${b.features.map(esc).join(', ')}.</p>
+    <p>For each of ${b.targets} targets, a <b>linear quantile regression</b> (log-log) and a <b>gradient-boosted
+      quantile model</b> predict the ${Math.round(b.quantile*100)}th percentile of spending; the one with the
+      lower held-out pinball loss is kept (${counts}).</p>
+    <table class="adv-table"><tbody>
+      <tr><td>Targets beating the fixed-% baseline</td><td class="num g">${b.beats_baseline} / ${b.targets}</td></tr>
+      <tr><td>Median improvement over baseline</td><td class="num g">${b.median_improvement_pct.toFixed(1)}%</td></tr>
+      <tr><td>Total needs: improvement</td><td class="num g">${tot.total_needs.improvement_pct.toFixed(1)}%</td></tr>
+      <tr><td>Mean coverage (target ${b.quantile.toFixed(2)})</td><td class="num">${b.mean_coverage.toFixed(3)}</td></tr>
+    </tbody></table>
+    <p class="mu" style="font-size:12px">Wants scale roughly in proportion to income, so the simple baseline is
+      already near-optimal there; the model's gains come from necessities like rent and groceries.</p>`;
+  el.dataset.loaded = '1';
+}
+
+// ── Home Plan ──────────────────────────────────────────────────────────────────
+async function loadHome() {
+  const d = await api('GET', '/api/session');
+  lastSession = d;
+  if (!document.getElementById('hp-year').value)
+    document.getElementById('hp-year').value = new Date().getFullYear() + 5;
+  if (d.savings > 0 && !document.getElementById('hp-savings').value)
+    document.getElementById('hp-savings').value = d.savings.toFixed(2);
+
+  const el = document.getElementById('home-card');
+  if (el.dataset.loaded) return;
+  const h = (await getModelCards()).home;
+  if (!h) { el.textContent = 'Home price data not available.'; return; }
+  const short = n => n.replace('Log-linear trend', 'Log-linear').replace(' (all history)', ' (all)');
+  const order = ['MSPUS', 'MSPNE', 'MSPMW', 'MSPS', 'MSPW'];
+  const rows = order.filter(k => h.regions[k]).map(k => h.regions[k]).map(r => `<tr><td>${esc(r.name)}</td>
+    ${h.candidates.map(c => `<td class="num ${c === r.chosen ? 'g' : 'mu'}">${r.candidates[c].toFixed(1)}%</td>`).join('')}
+    <td class="num mu">${r.naive_mape.toFixed(1)}%</td>
+    <td class="num">${r.annual_growth != null ? (r.annual_growth*100).toFixed(1) + '%/yr' : '—'}</td></tr>`).join('');
+  el.innerHTML = `
+    <p>Data: FRED quarterly median sales price of houses sold, by region. Models are fit on
+      <b>${h.train_period}</b> and tested on <b>${h.test_period}</b> — a chronological split, so the test
+      measures real forecasting rather than interpolation.</p>
+    <table class="adv-table"><thead><tr><th>Test MAPE</th>
+      ${h.candidates.map(c => `<th class="num">${esc(short(c))}</th>`).join('')}<th class="num">Naive</th><th class="num">Growth</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <p class="mu" style="font-size:12px">Green = model chosen for that region, then refit on all data. "Naive"
+      assumes prices stay flat. The 95% range comes from the chosen model's out-of-sample error. Trends
+      can't foresee shocks like 2008 or 2021 — treat the forecast as a planning estimate.</p>`;
+  el.dataset.loaded = '1';
+}
+
+async function calcHomePlan() {
+  const errEl = document.getElementById('hp-err');
+  errEl.textContent = '';
+  try {
+    const d = await api('POST', '/api/home-plan', {
+      region:    document.getElementById('hp-region').value,
+      year:      parseInt(document.getElementById('hp-year').value),
+      down_pct:  parseFloat(document.getElementById('hp-dp').value),
+      savings:   parseFloat(document.getElementById('hp-savings').value) || 0,
+      rate:      parseFloat(document.getElementById('hp-rate').value),
+      loan_term: parseInt(document.getElementById('hp-term').value),
+    });
+
+    const plan   = d.plan;
+    const income = d.monthly_income;
+    const feasible = income > 0 && plan.monthly_needed <= income * 0.20;
+    const mc = feasible ? 'var(--green)' : 'var(--red)';
+
+    lastChartPayload = {
+      region: document.getElementById('hp-region').value,
+      year: parseInt(document.getElementById('hp-year').value),
+      savings: parseFloat(document.getElementById('hp-savings').value) || 0,
+      down_pct: parseFloat(document.getElementById('hp-dp').value),
+    };
+    const fitNote = income <= 0 ? 'Set your income on the Account page to check this.'
+      : feasible ? `Fits within a 20% savings rate (${fmt(income * 0.2)}/mo).`
+      : `More than 20% of your income (${fmt(income * 0.2)}/mo) — try a later year or smaller down payment.`;
+
+    document.getElementById('hp-result').innerHTML = `
+      <div class="card" style="margin-bottom:8px">
+        <span class="g" style="font-weight:700">${esc(d.region)} · Target ${d.year}</span>
+        <span class="mu" style="font-size:12px;margin-left:12px">${d.months} months away · Savings: ${fmt(d.savings)}</span>
+      </div>
+      <div class="hp-card">
+        <div class="hp-model-row">
+          <span><span style="font-weight:700">Forecast median price</span>
+            <span class="mu" style="font-size:12px;margin-left:8px">${esc(d.model)}</span></span>
+          <span class="g" style="font-weight:700">${fmt0(d.price)}</span>
+        </div>
+        <div class="mu" style="font-size:12px;margin-bottom:8px">95% range ${fmt0(d.low)} – ${fmt0(d.high)} ·
+          latest ${fmt0(d.latest_price)} (${esc(d.latest_date)})</div>
+        <div style="height:1px;background:var(--border);margin-bottom:8px"></div>
+        <div class="hp-detail-row"><span class="mu">Down Payment Needed</span><span>${fmt0(plan.down_payment)}</span></div>
+        <div class="hp-detail-row"><span class="mu">Still Needed</span><span>${fmt0(plan.still_needed)}</span></div>
+        <div class="hp-detail-row"><span class="mu">Monthly Savings Required</span><span style="color:${mc};font-weight:700">${fmt(plan.monthly_needed)}</span></div>
+        <div class="hp-detail-row"><span class="mu">Est. Monthly Mortgage Payment</span><span class="a">${fmt(plan.monthly_payment)}</span></div>
+        <div class="mu" style="font-size:12px;margin-top:8px">${fitNote}</div>
+      </div>
+      <button class="btn btn-muted" style="margin-bottom:16px" onclick="showChart(lastChartPayload)">📈 Show Price Chart</button>
+      <div id="hp-chart"></div>`;
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+let lastChartPayload = null;
+
+async function showChart(payload) {
+  document.getElementById('hp-chart').innerHTML = '<span class="mu">Generating chart…</span>';
+  try {
+    const d = await api('POST', '/api/home-plan/chart', payload);
+    document.getElementById('hp-chart').innerHTML =
+      `<img src="data:image/png;base64,${d.image}" style="width:100%;border-radius:6px;margin-top:8px">`;
+  } catch(e) {
+    document.getElementById('hp-chart').innerHTML = `<span class="r">Chart error: ${esc(e.message)}</span>`;
+  }
+}
+
+// ── Debt Plan ──────────────────────────────────────────────────────────────────
+const STRATEGY_COLORS = {avalanche: '#a855f7', snowball: '#3b82f6'};
+
+async function loadDebt() {
+  const { debts } = await api('GET', '/api/debts');
+  const el = document.getElementById('dt-list');
+  document.getElementById('dt-plan-card').hidden = !debts.length;
+  if (!debts.length) {
+    el.innerHTML = '<div class="mu" style="padding:12px 0">No debts added yet. Add each card or loan above to build a payoff plan.</div>';
+    document.getElementById('dt-result').innerHTML = '';
+    return;
+  }
+  const total = debts.reduce((s, d) => s + d.balance, 0);
+  el.innerHTML = `<div style="font-weight:600;margin:4px 0 8px">Total: ${fmt(total)}</div>` + debts.map(d => `
+    <div class="exp-row">
+      <div class="exp-row-left"><div class="exp-row-name">${esc(d.name)}</div>
+        <div class="exp-row-meta">${d.apr.toFixed(2)}% APR · ${fmt(d.min_payment)}/mo minimum</div></div>
+      <div class="exp-row-right"><div class="exp-row-amt r">${fmt(d.balance)}</div></div>
+      <div class="exp-row-actions"><button class="icon-btn icon-btn-del" title="Remove" aria-label="Remove debt" onclick="deleteDebt(${d.id})">✕</button></div>
+    </div>`).join('');
+}
+
+async function addDebt() {
+  const errEl = document.getElementById('dt-err');
+  errEl.textContent = '';
+  try {
+    await api('POST', '/api/debts', {
+      name: val('dt-name'), balance: val('dt-bal'), apr: val('dt-apr'), min_payment: val('dt-min'),
+    });
+    ['dt-name', 'dt-bal', 'dt-apr', 'dt-min'].forEach(id => setVal(id, ''));
+    document.getElementById('dt-result').innerHTML = '';
+    await loadDebt();
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+async function deleteDebt(id) {
+  if (!confirm('Remove this debt?')) return;
+  try {
+    await api('DELETE', `/api/debts/${id}`);
+    document.getElementById('dt-result').innerHTML = '';
+    await loadDebt();
+  } catch(e) { showToast(e.message); }
+}
+
+function monthsLabel(m) {
+  if (m == null) return 'Never (payments too low)';
+  const y = Math.floor(m / 12), mo = m % 12;
+  return [y ? `${y} yr` : '', mo ? `${mo} mo` : ''].filter(Boolean).join(' ') || '0 mo';
+}
+
+function payoffDate(m) {
+  const d = new Date(); d.setMonth(d.getMonth() + m);
+  return d.toLocaleDateString('en-US', {month: 'short', year: 'numeric'});
+}
+
+function balanceChart(results) {
+  // Inline SVG line chart of total balance over time for each strategy.
+  const W = 640, H = 220, P = {l: 64, r: 12, t: 12, b: 28};
+  const series = Object.values(results);
+  const maxLen = Math.max(...series.map(s => s.balance_history.length));
+  const maxBal = Math.max(...series.map(s => s.balance_history[0]));
+  const x = i => P.l + (W - P.l - P.r) * i / Math.max(1, maxLen - 1);
+  const y = v => P.t + (H - P.t - P.b) * (1 - v / maxBal);
+  const ticks = [0, .25, .5, .75, 1].map(f => f * maxBal);
+  const step = Math.max(1, Math.ceil(maxLen / 6 / 12) * 12);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Total balance over time by strategy">`;
+  ticks.forEach(v => svg += `<line x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}" stroke="#2d2d44"/>
+    <text x="${P.l-8}" y="${y(v)+4}" fill="#64748b" font-size="11" text-anchor="end">$${Math.round(v/1000)}k</text>`);
+  for (let m = 0; m < maxLen; m += step)
+    svg += `<text x="${x(m)}" y="${H-8}" fill="#64748b" font-size="11" text-anchor="middle">${m === 0 ? 'now' : 'mo ' + m}</text>`;
+  series.forEach(s => {
+    const pts = s.balance_history.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const dash = s.strategy === 'snowball' ? ' stroke-dasharray="6 4"' : '';
+    svg += `<polyline points="${pts}" fill="none" stroke="${STRATEGY_COLORS[s.strategy]}" stroke-width="2.2"${dash}/>`;
+  });
+  return svg + '</svg>';
+}
+
+async function runDebtPlan() {
+  const errEl = document.getElementById('dt-plan-err');
+  errEl.textContent = '';
+  try {
+    const c = await api('POST', '/api/debts/plan', {extra: parseFloat(val('dt-extra')) || 0});
+    const {avalanche: a, snowball: s} = c.results;
+    const tie = Math.abs(c.interest_saved_by_avalanche) < 0.5 && a.finished === s.finished;
+    const best = tie ? null
+      : (a.finished && (!s.finished || a.total_interest <= s.total_interest)) ? 'avalanche' : 'snowball';
+    const card = r => `
+      <div class="dt-card ${r.strategy === best ? 'best' : ''}">
+        ${r.strategy === best ? '<div class="dt-badge">Lowest interest</div>' : '<div class="dt-badge" style="color:var(--muted)">&nbsp;</div>'}
+        <div style="font-weight:700;color:${STRATEGY_COLORS[r.strategy]}">${r.strategy === 'avalanche' ? '🏔 Avalanche' : '⛄ Snowball'}</div>
+        <div class="mu" style="font-size:12px">${esc(r.label)}</div>
+        <div class="dt-big">${monthsLabel(r.months)}</div>
+        <div class="mu" style="font-size:12px">${r.finished ? 'Debt-free by ' + payoffDate(r.months) : ''}</div>
+        <div class="res-row"><span class="res-label">Total interest</span><span class="r">${fmt(r.total_interest)}</span></div>
+        <div class="res-row"><span class="res-label">Total paid</span><span>${fmt(r.total_paid)}</span></div>
+        <ol class="dt-order">${r.payoff_order.map(p => `<li>${esc(p.name)} — month ${p.month}</li>`).join('')}</ol>
+      </div>`;
+    const saved = c.interest_saved_by_avalanche;
+    const summary = saved > 0.5
+      ? `Avalanche saves <b class="g">${fmt(saved)}</b> in interest. Snowball pays off its first account
+         (${esc(s.payoff_order[0]?.name ?? '')}) in month ${s.payoff_order[0]?.month ?? '—'} vs. month ${a.payoff_order[0]?.month ?? '—'} — a quicker motivational win.`
+      : 'Both strategies cost about the same here, since your smallest debts also have the highest rates.';
+    document.getElementById('dt-result').innerHTML = `
+      ${c.warnings.map(w => `<div class="a" style="margin:8px 0">⚠ ${esc(w)} Add an extra payment to make progress.</div>`).join('')}
+      <div class="dt-grid">${card(a)}${card(s)}</div>
+      <div class="card"><div style="margin-bottom:10px">${summary}</div>
+        ${balanceChart(c.results)}
+        <div class="chart-legend"><span style="--c:${STRATEGY_COLORS.avalanche}">Avalanche</span>
+          <span style="--c:${STRATEGY_COLORS.snowball}">Snowball</span></div>
+      </div>`;
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+// ── Tips ───────────────────────────────────────────────────────────────────────
+const TIP_TOPICS = ['emergency fund', 'pay off debt', 'credit score', 'start investing',
+                    'Roth IRA', 'buying a house', 'save money on groceries', 'side hustle'];
+let tipsTimer = null;
+
+async function loadTips() {
+  const chips = document.getElementById('tips-chips');
+  if (!chips.childElementCount) {
+    chips.innerHTML = TIP_TOPICS.map(t => `<button class="chip" type="button">${esc(t)}</button>`).join('');
+    chips.querySelectorAll('.chip').forEach(b => b.onclick = () => {
+      setVal('tips-q', b.textContent); searchTips();
+    });
+    document.getElementById('tips-q').addEventListener('input', () => {
+      clearTimeout(tipsTimer); tipsTimer = setTimeout(searchTips, 250);
+    });
+  }
+  await searchTips();
+}
+
+async function searchTips() {
+  const q = val('tips-q').trim();
+  const d = await api('GET', '/api/tips?q=' + encodeURIComponent(q));
+  document.getElementById('tips-sub').textContent =
+    `Search PennyPath's library of ${d.total} personal-finance answers.`;
+  const el = document.getElementById('tips-results');
+  if (!d.results.length) { el.innerHTML = '<div class="mu" style="padding:12px 0">No matching tips — try different words.</div>'; return; }
+  el.innerHTML = d.results.map(t => `<div class="tip">
+      <div class="tip-q">${cap(t.question)}?</div><div class="tip-a">${esc(t.answer)}</div></div>`).join('');
+}
+
+// ── Account ────────────────────────────────────────────────────────────────────
+const PAY_PERIODS = {weekly: 52, biweekly: 26, monthly: 12, yearly: 1};
+const val = id => document.getElementById(id).value;
+const setVal = (id, v) => document.getElementById(id).value = v ?? '';
+
+function flashSaved(id, text = '✓ Saved') {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  setTimeout(() => { el.textContent = ''; }, 2500);
+}
+
+async function loadAccount() {
+  ['p-err','f-err','pw-err'].forEach(id => document.getElementById(id).textContent = '');
+  const d = await api('GET', '/api/profile');
+  const p = d.profile, f = d.finances;
+  document.getElementById('acc-sub').textContent = `Signed in as @${d.username}`;
+  setVal('p-name', p.full_name);  setVal('p-age', p.age);   setVal('p-house', p.household_size);
+  setVal('p-email', p.email);     setVal('p-job', p.occupation); setVal('p-state', p.state);
+  setVal('p-goal', p.primary_goal); setVal('p-risk', p.risk_tolerance);
+  setVal('f-freq', f.pay_frequency);
+  setVal('f-pay', f.pay_amount > 0 ? f.pay_amount.toFixed(2) : '');
+  setVal('f-checking', f.checking.toFixed(2));
+  setVal('f-savings',  f.savings.toFixed(2));
+  setVal('f-debt',     f.debt.toFixed(2));
+  document.getElementById('f-debt').disabled = f.debt_itemized;
+  document.getElementById('f-debt').title = f.debt_itemized ? 'Calculated from your itemized debts on the Debt Plan page' : '';
+  updatePayPreview();
+}
+
+function updatePayPreview() {
+  const pay = parseFloat(val('f-pay'));
+  const el = document.getElementById('f-preview');
+  if (!(pay > 0)) { el.textContent = ''; return; }
+  const yearly = pay * PAY_PERIODS[val('f-freq')];
+  el.textContent = `≈ ${fmt(yearly / 12)}/month · ${fmt(yearly)}/year`;
+}
+document.getElementById('f-pay').addEventListener('input', updatePayPreview);
+
+async function saveProfile() {
+  const errEl = document.getElementById('p-err');
+  errEl.textContent = '';
+  try {
+    await api('PUT', '/api/profile', {
+      full_name: val('p-name'), age: val('p-age'), household_size: val('p-house'),
+      email: val('p-email'), occupation: val('p-job'), state: val('p-state'),
+      primary_goal: val('p-goal'), risk_tolerance: val('p-risk'),
+    });
+    flashSaved('p-ok');
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+async function saveFinances() {
+  const errEl = document.getElementById('f-err');
+  errEl.textContent = '';
+  const pay = parseFloat(val('f-pay'));
+  if (!(pay > 0)) { errEl.textContent = 'Enter a valid pay amount.'; return; }
+  try {
+    await api('PUT', '/api/profile/finances', {
+      pay_amount: pay, pay_frequency: val('f-freq'),
+      checking: parseFloat(val('f-checking')) || 0,
+      savings:  parseFloat(val('f-savings'))  || 0,
+      debt:     parseFloat(val('f-debt'))     || 0,
+    });
+    flashSaved('f-ok');
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+async function changePassword() {
+  const errEl = document.getElementById('pw-err');
+  errEl.textContent = '';
+  try {
+    await api('POST', '/api/auth/password', {current: val('pw-cur'), new: val('pw-new'), confirm: val('pw-conf')});
+    ['pw-cur','pw-new','pw-conf'].forEach(id => setVal(id, ''));
+    flashSaved('pw-ok', '✓ Password updated');
+  } catch(e) { errEl.textContent = e.message; }
+}
+
+// ── Finance Chat ───────────────────────────────────────────────────────────────
+function toggleChat() {
+  chatOpen = !chatOpen;
+  document.getElementById('chat-panel').hidden = !chatOpen;
+  document.getElementById('chat-fab').hidden   = chatOpen;
+  if (chatOpen) document.getElementById('chat-input').focus();
+}
+
+// Minimal, safe Markdown for model replies: escape everything first, then allow
+// only **bold**, *italic*, `code`, and "* " / "- " bullets.
+function renderChatMarkdown(text) {
+  return esc(text)
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/(^|\n)\s*[*-]\s+/g, '$1• ')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>');
+}
+
+function appendChatMsg(role, name, text) {
+  const wrap = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = `chat-msg chat-msg-${role}`;
+  const nameEl = document.createElement('div');
+  nameEl.className = 'chat-msg-name';
+  nameEl.textContent = name;
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  bubble.textContent = text;   // textContent, never innerHTML: messages are user/model text
+  div.append(nameEl, bubble);
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return div.querySelector('.chat-bubble');
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const msg   = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+
+  appendChatMsg('you', 'You', msg);
+  chatHistory.push({role: 'user', content: msg});
+
+  const sendBtn = document.getElementById('chat-send');
+  const status  = document.getElementById('chat-status');
+  sendBtn.disabled = true;
+  status.textContent = 'Thinking…';
+
+  const bubble = appendChatMsg('ai', 'PennyPath AI', '');
+  let fullResponse = '';
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({messages: chatHistory}),
+    });
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, {stream: true});
+      for (const line of text.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) { bubble.textContent = 'Error: ' + parsed.error; break; }
+          if (parsed.token) {
+            fullResponse += parsed.token;
+            bubble.innerHTML = renderChatMarkdown(fullResponse);
+            document.getElementById('chat-messages').scrollTop = 9999;
+          }
+        } catch {}
+      }
+    }
+
+    if (fullResponse) chatHistory.push({role: 'assistant', content: fullResponse});
+  } catch(e) {
+    bubble.textContent = 'Error: ' + e.message;
+  }
+
+  sendBtn.disabled = false;
+  status.textContent = '';
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('auth').style.display !== 'none') submitAuth();
+  if (e.key === 'Enter' && !document.getElementById('onboarding').hidden) submitOnboarding();
+  if (e.key === 'Enter' && !e.shiftKey && chatOpen && document.activeElement.id === 'chat-input') {
+    e.preventDefault(); sendChat();
+  }
+});
+
+init();
+</script>
+</body>
+</html>
