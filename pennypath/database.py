@@ -10,6 +10,7 @@ use; call `ensure_ready()` at startup to fail fast with a helpful message.
 Money columns are NUMERIC (exact cents) but are returned to Python as float,
 since the rest of the app does float arithmetic.
 """
+import atexit
 import os
 import threading
 
@@ -141,6 +142,9 @@ class Database:
                                   kwargs=self._kwargs, configure=self._configure, open=False)
             pool.open(wait=True, timeout=10)
             self._pool = pool
+            # Close the pool's worker threads cleanly even if the app never calls close()
+            # (e.g. the desktop window is closed); otherwise Python errors at shutdown.
+            atexit.register(self.close)
 
     def _run(self, query, params=(), fetch: str | None = None):
         """Execute one statement in its own transaction (committed on success).
