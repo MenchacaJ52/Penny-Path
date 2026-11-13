@@ -1,8 +1,8 @@
 """
 seed_demo.py  —  Create (or reset) a demo account with realistic sample data.
 
-    python scripts/seed_demo.py                 # seeds pennypath.db
-    python scripts/seed_demo.py --db demo.db    # seeds a separate database file
+    python scripts/seed_demo.py                       # seeds the database in DATABASE_URL
+    python scripts/seed_demo.py --url postgresql://…   # seeds a different database
 
 Login: demo / demo1234   (local demo data only — not a real account)
 """
@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # project root
 
 from pennypath import auth  # noqa: E402
-from pennypath.database import Database  # noqa: E402
+from pennypath.database import Database, describe  # noqa: E402
 
 DEMO_USER, DEMO_PASSWORD = "demo", "demo1234"
 
@@ -67,10 +67,10 @@ def seed(db: Database):
     for debt in DEBTS:
         db.add_debt(uid, *debt)
     db.mark_onboarded(uid)
-    print(f"Seeded '{DEMO_USER}' (password: {DEMO_PASSWORD}) in {db.path}")
+    print(f"Seeded '{DEMO_USER}' (password: {DEMO_PASSWORD}) in {describe(db.url)}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    parser.add_argument("--db", help="database file (default: pennypath.db)")
-    seed(Database(parser.parse_args().db))
+    parser.add_argument("--url", help="PostgreSQL URL (default: the DATABASE_URL env var)")
+    seed(Database(parser.parse_args().url))

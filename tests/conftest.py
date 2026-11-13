@@ -1,24 +1,50 @@
 import os
 import sys
-import tempfile
+import uuid
 
+import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-# Never let tests touch the real database or require a real secret. This must run before
-# the web app is imported, because it opens the default database at import time.
-os.environ["PENNYPATH_DB"] = os.path.join(tempfile.mkdtemp(prefix="pennypath-tests-"), "import.db")
+
+
+def _test_database_url() -> str | None:
+    """TEST_DATABASE_URL if set, else DATABASE_URL pointed at the `pennypath_test` database."""
+    if os.environ.get("TEST_DATABASE_URL"):
+        return os.environ["TEST_DATABASE_URL"]
+    if os.environ.get("DATABASE_URL"):
+        return make_conninfo(os.environ["DATABASE_URL"], dbname="pennypath_test")
+    return None
+
+
+TEST_DATABASE_URL = _test_database_url()
+if TEST_DATABASE_URL and os.environ.get("DATABASE_URL") and \
+        conninfo_to_dict(TEST_DATABASE_URL).get("dbname") == \
+        conninfo_to_dict(os.environ["DATABASE_URL"]).get("dbname"):
+    raise SystemExit("Refusing to run: the test database is the same as the app database.")
+# Anything that builds a Database() from the environment during tests (e.g. the web
+# app at import time) must point at the test database, never the real one.
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL or ""
 os.environ["SECRET_KEY"] = "test-secret"
 
 from pennypath.database import Database  # noqa: E402
 
 
 @pytest.fixture
-def db(tmp_path):
-    database = Database(str(tmp_path / "test.db"))
+def db():
+    """A Database in a fresh, empty schema of the test database, dropped afterwards."""
+    if not TEST_DATABASE_URL:
+        pytest.skip("Database tests need PostgreSQL: set DATABASE_URL (see README)")
+    schema = f"test_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    database = Database(TEST_DATABASE_URL, schema=schema, max_size=4)
     yield database
     database.close()
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
 
 
 @pytest.fixture(scope="session")

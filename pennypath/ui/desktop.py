@@ -13,7 +13,7 @@ from tkinter import ttk, messagebox
 from pennypath import auth
 from pennypath.assistant import chat_guard
 from pennypath.finance.affordability     import check as loan_check
-from pennypath.database          import Database
+from pennypath.database          import Database, DatabaseNotConfigured
 from pennypath.finance.accounts         import SavingsAccount, CheckingAccount, WageAccount
 from pennypath.finance.wages             import Wages
 from pennypath.finance.expenses          import Needs, Wants, make_expense, from_rows, summarize
@@ -1575,6 +1575,15 @@ class PennyPathApp:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    try:
+        probe = Database()
+        probe.ensure_ready()
+        probe.close()
+    except DatabaseNotConfigured as e:
+        print(f"\n{e}\n")
+        root = tk.Tk(); root.withdraw()
+        messagebox.showerror("PennyPath — database not set up", str(e))
+        raise SystemExit(1)
     root = tk.Tk()
     PennyPathApp(root)
     root.mainloop()

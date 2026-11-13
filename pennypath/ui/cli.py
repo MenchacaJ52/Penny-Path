@@ -4,7 +4,7 @@ Run from the project root:  python run_cli.py
 """
 import time
 
-from pennypath.database import Database
+from pennypath.database import Database, DatabaseNotConfigured
 from pennypath.auth import login_screen
 from pennypath.finance.accounts import SavingsAccount, CheckingAccount, WageAccount
 from pennypath.finance.wages import Wages
@@ -145,6 +145,10 @@ class CLISession:
 
 def main():
     db = Database()
+    try:
+        db.ensure_ready()
+    except DatabaseNotConfigured as e:
+        raise SystemExit(f"\n{e}\n")
     print("Loading models…")
     advisor = BudgetAdvisor()
     advisor.train()

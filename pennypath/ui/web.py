@@ -15,7 +15,7 @@ from pennypath.assistant import chat_guard
 from pennypath.assistant import tips
 from pennypath.finance.affordability     import check as loan_check
 from pennypath.finance.debt_planner      import Debt, compare
-from pennypath.database          import Database
+from pennypath.database          import Database, DatabaseNotConfigured
 from pennypath.finance.expenses          import Needs, Wants, CATEGORIES, FREQUENCIES, from_rows, summarize
 from pennypath.ml.budget            import BudgetAdvisor
 from pennypath.ml.home_savings_plan import HomeSavingsPlan, REGIONS
@@ -550,6 +550,10 @@ def server_error(e):
 
 
 def main():
+    try:
+        db.ensure_ready()
+    except DatabaseNotConfigured as e:
+        raise SystemExit(f"\n{e}\n")
     # The Werkzeug debugger allows arbitrary code execution — opt in explicitly, never by default.
     app.run(debug=os.environ.get('FLASK_DEBUG') == '1', port=int(os.environ.get('PORT', 5000)))
 

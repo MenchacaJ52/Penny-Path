@@ -32,6 +32,7 @@ It ships with three front ends that share one Python core:
 
 ```bash
 pip install -r requirements.txt
+# one-time: create the PostgreSQL database and set DATABASE_URL (see "Database setup" below)
 python scripts/seed_demo.py  # optional: demo account  demo / demo1234
 python run_web.py            # open http://localhost:5000
 ```
@@ -43,12 +44,43 @@ Ollama, the chat still answers from the tip library in offline mode. To use a di
 model, set the `PENNYPATH_MODEL` environment variable.
 
 **Configuration (environment variables):**
-- `PENNYPATH_DB`: path to the database file (default: `pennypath.db`).
+- `DATABASE_URL` (required): PostgreSQL connection URL, e.g. `postgresql://pennypath:<password>@localhost:5432/pennypath`.
 - `SECRET_KEY`: session key. By default a random key is generated and saved to `.secret_key`, which git ignores.
 - `PORT`: web server port (default: 5000).
 - `FLASK_DEBUG=1`: turns on the debugger. Never use this on a network.
 
 ---
+
+## Database setup
+
+PennyPath stores its data in **PostgreSQL** (tested with version 18).
+
+1. **Create a database user and databases** (once). Run this as the `postgres` admin user;
+   it asks you to choose a password for a new `pennypath` user and creates the `pennypath`
+   and `pennypath_test` databases:
+   ```bash
+   psql -U postgres -f scripts/setup_postgres.sql
+   ```
+   On Windows, `psql` is in `C:\Program Files\PostgreSQL\<version>\bin\` if it isn't on your PATH.
+2. **Point PennyPath at it** by setting `DATABASE_URL`. In PowerShell, to keep it for future
+   terminals:
+   ```powershell
+   [Environment]::SetEnvironmentVariable('DATABASE_URL', 'postgresql://pennypath:<password>@localhost:5432/pennypath', 'User')
+   ```
+   Open a new terminal (or restart your IDE) afterwards. If the password contains
+   characters like `@`, `:`, `/` or `#`, percent-encode them (e.g. `@` → `%40`).
+3. **Run the app.** Tables are created automatically on first start.
+
+**Coming from the SQLite version?** Copy your existing data into Postgres once:
+```bash
+python scripts/migrate_sqlite_to_postgres.py      # reads pennypath.db; never modifies it
+```
+It runs in a single transaction, keeps all ids, skips rows belonging to deleted users, and
+refuses to run against a database that already has users.
+
+**Schema notes:** money is stored as `NUMERIC(14,2)` (exact cents, no float rounding);
+`CHECK` constraints reject impossible values (negative amounts, unknown categories);
+foreign keys cascade when a user is deleted; connections come from a thread-safe pool.
 
 ## The machine-learning models
 
@@ -152,7 +184,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-There are 56 tests, covering:
+There are 63 tests, covering:
 - **Calculations:** monthly conversion, the loan formula, and debt-payoff math checked
   against the standard amortization formula.
 - **Auth:** salted hashes, and upgrading old-style hashes.
@@ -160,8 +192,12 @@ There are 56 tests, covering:
   calibrated, and use a chronological split.
 - **API:** validation, keeping users' data separate, and server-built chat prompts.
 - **Chat guardrails:** run with a fake Ollama that can be made to crash.
+- **PostgreSQL:** exact money storage, constraints, concurrent access through the pool, and
+  the SQLite-to-Postgres migration.
 
-Tests use a temporary database and never touch `pennypath.db`.
+Database tests run in the `pennypath_test` database (derived from `DATABASE_URL`, or set
+`TEST_DATABASE_URL`). Each test gets its own temporary schema that is dropped afterwards, so
+your real data is never touched. Without a database configured, those tests are skipped.
 
 ## Project structure
 
@@ -170,7 +206,7 @@ run_web.py · run_desktop.py · run_cli.py    Start each app (run from this fold
 
 pennypath/                   All application code
 ├── paths.py                 Where data, models, and the database live
-├── database.py              SQLite persistence (one connection per thread)
+├── database.py              PostgreSQL persistence (schema, connection pool)
 ├── auth.py                  Password hashing, login/registration
 ├── prompts.py               Validated console input for the CLI
 ├── finance/
@@ -194,7 +230,9 @@ data/                        fredgraph.csv, financial_tips.json, synthetic house
 scripts/
 ├── generate_dataset.py      Synthetic household data (Engel curves)
 ├── train_models.py          Train + evaluate both models → models/metrics.json
-└── seed_demo.py             Demo account with realistic data
+├── seed_demo.py             Demo account with realistic data
+├── setup_postgres.sql       One-time database + user creation
+└── migrate_sqlite_to_postgres.py   Copy data from the old SQLite file
 tests/                       pytest suite
 docs/                        Images for this README
 models/                      Trained models (generated, git-ignored)
@@ -206,6 +244,8 @@ models/                      Trained models (generated, git-ignored)
   microdata (e.g. the BLS Consumer Expenditure Survey PUMD) is the natural next step, and
   the pipeline doesn't depend on where the data comes from.
 - Expenses have no dates yet, so there are no month-over-month trends.
-- SQLite fits a single-machine app. A multi-user deployment would use PostgreSQL behind a
-  production WSGI server (e.g. gunicorn), with rate limiting on login.
+- Schema changes are applied with `CREATE TABLE IF NOT EXISTS`. Evolving the schema
+  further would call for a migration tool such as Alembic.
+- A public deployment would run behind a production WSGI server (e.g. gunicorn), with
+  rate limiting on login.
 - Chat feedback (👍/👎) is stored in the desktop app but not yet used to improve answers.
