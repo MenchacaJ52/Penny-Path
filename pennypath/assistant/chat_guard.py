@@ -86,7 +86,8 @@ def build_system_prompt(snapshot: dict | None) -> str:
             f"• Monthly income:  ${s['income']:,.2f}",
             f"• Monthly needs:   ${s['needs']:,.2f}",
             f"• Monthly wants:   ${s['wants']:,.2f}",
-            f"• Monthly surplus: ${s['income'] - s['needs'] - s['wants']:,.2f}",
+            f"• Debt payments:   ${s.get('debt_payments', 0):,.2f}/mo (minimums)",
+            f"• Monthly surplus: ${s['income'] - s['needs'] - s['wants'] - s.get('debt_payments', 0):,.2f}",
             f"• Checking:        ${s['checking']:,.2f}",
             f"• Savings:         ${s['savings']:,.2f}",
         ]

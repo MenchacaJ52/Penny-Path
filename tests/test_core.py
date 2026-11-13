@@ -4,7 +4,7 @@ import hashlib
 import pytest
 
 from pennypath import auth
-from pennypath.finance.affordability import check, monthly_payment
+from pennypath.finance.affordability import assess, monthly_payment
 from pennypath.finance.debt_planner import Debt, compare, simulate
 from pennypath.finance.expenses import Needs, Wants, from_rows, make_expense, summarize, to_monthly
 
@@ -80,10 +80,48 @@ def test_monthly_payment_matches_known_value():
         monthly_payment(1000, 5, 0)
 
 
-def test_affordability_uses_36_percent_rule():
-    r = check(income=1000, principal=10000, annual_rate_pct=0, months=10)
-    assert r["max_allowable"] == pytest.approx(360)
-    assert r["monthly_payment"] == pytest.approx(1000) and not r["affordable"]
+DEMO_BUDGET = dict(monthly_expenses=2511.67 + 578, existing_debt_payments=620)
+DEMO_INCOME = 1150 * 52 / 12   # $4,983/month
+
+
+def _status(result, name):
+    return next(c["status"] for c in result["checks"] if c["name"] == name)
+
+
+def test_loan_that_passes_36_percent_alone_but_breaks_the_budget_is_rejected():
+    """The old check approved this: $1,676/mo is under 36% of income on its own. But with
+    $620 of existing debt payments and current expenses, the user would be short every month."""
+    r = assess(DEMO_INCOME, 70000, 7, 48, purpose="car", **DEMO_BUDGET)
+    assert r["monthly_payment"] == pytest.approx(1676.24, abs=0.01)
+    assert r["monthly_payment"] < 0.36 * DEMO_INCOME          # what the old rule looked at
+    assert r["verdict"] == "not_affordable"
+    assert _status(r, "Debt-to-income") == "fail"             # 46% with existing debts
+    assert _status(r, "Monthly cash flow") == "fail"          # about -$403/month
+    assert r["left_over"] == pytest.approx(-402.57, abs=0.01)
+
+
+def test_reasonable_car_loan_is_comfortable():
+    r = assess(DEMO_INCOME, 25000, 7, 60, down_payment=5000, purpose="car", **DEMO_BUDGET)
+    assert r["verdict"] == "comfortable" and r["principal"] == 20000
+    assert all(c["status"] == "pass" for c in r["checks"])
+    assert r["total_interest"] == pytest.approx(r["monthly_payment"] * 60 - 20000)
+
+
+def test_tight_when_only_the_guideline_is_exceeded():
+    # Lots of slack in the budget, but a $900 car payment is 18% of income (> 15%).
+    r = assess(5000, 45000, 6, 60, purpose="car")
+    assert _status(r, "Payment guideline") == "warn"
+    assert _status(r, "Debt-to-income") == "pass" and _status(r, "Monthly cash flow") == "pass"
+    assert r["verdict"] == "tight"
+
+
+def test_assess_validates_inputs():
+    with pytest.raises(ValueError):
+        assess(0, 1000, 5, 12)
+    with pytest.raises(ValueError):
+        assess(3000, 1000, 5, 12, down_payment=1000)    # down payment must be < price
+    with pytest.raises(ValueError):
+        assess(3000, 1000, 5, 12, purpose="yacht")
 
 
 # ── Debt planner ──────────────────────────────────────────────────────────────

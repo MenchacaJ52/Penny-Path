@@ -13,7 +13,7 @@ from pennypath import auth
 from pennypath.paths import SECRET_KEY_FILE
 from pennypath.assistant import chat_guard
 from pennypath.assistant import tips
-from pennypath.finance.affordability     import check as loan_check
+from pennypath.finance.affordability     import assess as assess_loan
 from pennypath.finance.debt_planner      import Debt, compare
 from pennypath.database          import Database, DatabaseNotConfigured
 from pennypath.finance.expenses          import Needs, Wants, CATEGORIES, FREQUENCIES, from_rows, summarize
@@ -58,7 +58,7 @@ def _load(uid: int) -> dict:
     needs_total, wants_total = summarize(expenses)
     return dict(
         checking=s['checking'], savings=s['savings'],
-        wage=s['wage'], debt=s['debt'],
+        wage=s['wage'], debt=s['debt'], debt_payments=s['debt_payments'],
         expenses=expenses, needs_total=needs_total, wants_total=wants_total,
     )
 
@@ -153,6 +153,7 @@ def get_session():
         checking=st['checking'], savings=st['savings'],
         wage=st['wage'], monthly_income=_monthly_income(st['wage']), debt=st['debt'],
         needs_total=st['needs_total'], wants_total=st['wants_total'],
+        debt_payments=st['debt_payments'],
         expenses=[e.to_dict() for e in st['expenses']],
     )
 
@@ -359,7 +360,8 @@ def run_advisor():
         return jsonify(error='Set your weekly wage first'), 400
     prof = db.load_profile(_uid())
     rec = advisor.recommend(income, st['needs_total'], st['wants_total'], st['expenses'],
-                            household_size=prof['household_size'], age=prof['age'])
+                            household_size=prof['household_size'], age=prof['age'],
+                            debt_payments=st['debt_payments'])
     if not rec:
         return jsonify(error='Could not generate recommendation'), 500
     return jsonify(rec)
@@ -439,15 +441,27 @@ def search_tips():
 def affordability():
     d = request.get_json(silent=True) or {}
     try:
-        inc  = _num(d, 'income', positive=True)
-        ammt = _num(d, 'amount', positive=True)
-        rate = _num(d, 'rate', minimum=0)
-        mnth = _num(d, 'months', positive=True, integer=True)
+        inc   = _num(d, 'income', positive=True)
+        price = _num(d, 'amount', positive=True)
+        down  = _num(d, 'down_payment', minimum=0, default=0)
+        rate  = _num(d, 'rate', minimum=0)
+        mnth  = _num(d, 'months', positive=True, integer=True)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     if mnth > 600:
         return jsonify(error='Loan duration must be 600 months or fewer'), 400
-    return jsonify(loan_check(inc, ammt, rate, mnth))
+    if rate > 100:
+        return jsonify(error='Interest rate must be 100% or less'), 400
+    # The user's expenses and existing debt payments come from the database, not the client.
+    st = _load(_uid())
+    try:
+        result = assess_loan(inc, price, rate, mnth, down_payment=down,
+                             monthly_expenses=st['needs_total'] + st['wants_total'],
+                             existing_debt_payments=st['debt_payments'],
+                             purpose=d.get('purpose', 'other'))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(result)
 
 
 # ── Home Savings Plan ──────────────────────────────────────────────────────────
@@ -515,6 +529,7 @@ def chat():
     # System prompt is built here from the DB — never trusted from the client.
     st = _load(_uid())
     snapshot = dict(income=_monthly_income(st['wage']), needs=st['needs_total'], wants=st['wants_total'],
+                    debt_payments=st['debt_payments'],
                     checking=st['checking'], savings=st['savings'], debt=st['debt'],
                     profile=db.load_profile(_uid()), debts=db.load_debts(_uid()))
 

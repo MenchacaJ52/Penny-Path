@@ -272,6 +272,7 @@ class Database:
             "budget":   self.load_budget(user_id),
             "expenses": self.load_expenses(user_id),
             "debt":     self.load_debt(user_id),
+            "debt_payments": self.load_debt_payments(user_id),
         }
 
     # ── Chat feedback ─────────────────────────────────────────────────────
@@ -305,6 +306,11 @@ class Database:
             "SELECT id, name, balance, apr, min_payment FROM debts WHERE user_id = %s ORDER BY id",
             (user_id,), fetch="all")
         return [dict(id=r[0], name=r[1], balance=r[2], apr=r[3], min_payment=r[4]) for r in rows]
+
+    def load_debt_payments(self, user_id: int) -> float:
+        """Total monthly minimum payments across itemized debts."""
+        return self._run("SELECT COALESCE(SUM(min_payment), 0) FROM debts WHERE user_id = %s",
+                         (user_id,), fetch="one")[0]
 
     def _sync_debt_total(self, user_id: int):
         self._run(

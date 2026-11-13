@@ -64,9 +64,22 @@ def test_bad_numbers_are_400_not_500(client, user):
         assert client.post(url, json=body).status_code == 400, (url, body)
 
 
-def test_affordability_ok(client, user):
-    r = client.post("/api/affordability", json=dict(income=4000, amount=20000, rate=6, months=60))
-    assert r.status_code == 200 and r.get_json()["affordable"] is True
+def test_affordability_counts_the_users_own_expenses_and_debts(client, user):
+    loan = dict(income=4333, amount=30000, rate=7, months=60, purpose="car")   # ~$594/month
+    assert client.post("/api/affordability", json=loan).get_json()["verdict"] == "comfortable"
+
+    # Same loan once the user has rent and an existing debt: the server pulls both from
+    # the database (the client never sends them), and the verdict changes.
+    client.post("/api/expenses", json=dict(name="Rent", category="needs", subcategory="rent/mortgage",
+                                           amount=3000, frequency="Monthly"))
+    client.post("/api/debts", json=dict(name="Card", balance=9000, apr=24, min_payment=900))
+    r = client.post("/api/affordability", json=loan).get_json()
+    assert r["existing_debt_payments"] == 900 and r["monthly_expenses"] == 3000
+    assert r["verdict"] == "not_affordable" and r["left_over"] < 0
+    assert client.get("/api/session").get_json()["debt_payments"] == 900
+
+    assert client.post("/api/affordability", json=dict(loan, down_payment=30000)).status_code == 400
+    assert client.post("/api/affordability", json=dict(loan, purpose="yacht")).status_code == 400
 
 
 def test_profile_and_finances(client, user):

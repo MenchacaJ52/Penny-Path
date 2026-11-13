@@ -122,14 +122,18 @@ class CLISession:
             elif num == "4":
                 self.show_totals()
             elif num == "5":
-                Affordability().check_affordability()
+                needs, wants = self.totals
+                Affordability().check_affordability(
+                    self.wages.monthly_income, needs + wants,
+                    self.db.load_debt_payments(self.user_id))
             elif num == "6":
                 self.budget = self.budget or Budget()
                 self.budget.set_budget()
                 self.db.save_budget(self.budget.bd, self.user_id)
             elif num == "7":
                 needs, wants = self.totals
-                advisor.display_report(self.wages.monthly_income, needs, wants, self.expenses)
+                advisor.display_report(self.wages.monthly_income, needs, wants, self.expenses,
+                                       debt_payments=self.db.load_debt_payments(self.user_id))
             elif num == "8":
                 if input("Clear ALL saved expenses? (yes/no): ").strip().lower() == "yes":
                     self.expenses.clear()

@@ -195,8 +195,9 @@ class BudgetAdvisor:
     # ── Recommendation ────────────────────────────────────────────────────
     def recommend(self, monthly_income: float, actual_needs: float, actual_wants: float,
                   expenses: list | None = None, household_size: int | None = None,
-                  age: int | None = None) -> dict | None:
-        """Compare the user's spending with thrifty peers. `expenses` are Needs/Wants objects."""
+                  age: int | None = None, debt_payments: float = 0.0) -> dict | None:
+        """Compare the user's spending with thrifty peers. `expenses` are Needs/Wants objects;
+        `debt_payments` (minimum payments on debts) reduces the user's actual savings."""
         if not self._trained:
             self.train()
         if monthly_income <= 0:
@@ -230,7 +231,8 @@ class BudgetAdvisor:
             "rec_needs": rec_needs, "rec_wants": rec_wants,
             "rec_savings": monthly_income - rec_needs - rec_wants,
             "actual_needs": actual_needs, "actual_wants": actual_wants,
-            "actual_savings": monthly_income - actual_needs - actual_wants,
+            "debt_payments": debt_payments,
+            "actual_savings": monthly_income - actual_needs - actual_wants - debt_payments,
             "base_needs": monthly_income * self.NEEDS_RATIO,
             "base_wants": monthly_income * self.WANTS_RATIO,
             "base_savings": monthly_income * self.SAVINGS_RATIO,
@@ -275,6 +277,8 @@ class BudgetAdvisor:
                                              ("Wants", "rec_wants", "actual_wants", True),
                                              ("Savings", "rec_savings", "actual_savings", False)):
             over = r[ak] > r[rk] if higher_is_bad else r[ak] < r[rk]
+            if label == "Savings" and r["debt_payments"]:
+                add(f"  {'Debt payments':<22} {'':>10}  ${r['debt_payments']:>9,.2f}", "muted")
             add(f"  {label:<22} ${r[rk]:>9,.2f}  ${r[ak]:>9,.2f}", "red" if over else "green")
         add()
 
@@ -299,7 +303,11 @@ class BudgetAdvisor:
         if r["actual_savings"] < r["rec_savings"]:
             add(f"  Savings are ${r['rec_savings'] - r['actual_savings']:,.2f} below thrifty peers.",
                 "amber")
-            add("     Tip: automate a small recurring transfer to savings.", "muted")
+            if r["debt_payments"]:
+                add(f"     ${r['debt_payments']:,.2f}/month goes to debt minimums (peer figures "
+                    "exclude debt payments) — see the Debt Plan to pay it off faster.", "muted")
+            else:
+                add("     Tip: automate a small recurring transfer to savings.", "muted")
             shown = True
         for s in used:
             if s["actual"] > s["recommended"] * OVER_TOLERANCE and s["tip"]:
@@ -319,14 +327,14 @@ class BudgetAdvisor:
 
     def display_report(self, monthly_income: float, actual_needs: float, actual_wants: float,
                        expenses: list | None = None, household_size: int | None = None,
-                       age: int | None = None):
+                       age: int | None = None, debt_payments: float = 0.0):
         """CLI: print the report with ANSI colors."""
         if monthly_income <= 0:
             print("\033[31mCannot generate report: monthly income is $0.00.\033[0m")
             print("Please set your weekly wage in the Wages menu first.")
             return
         r = self.recommend(monthly_income, actual_needs, actual_wants, expenses,
-                           household_size, age)
+                           household_size, age, debt_payments)
         ansi = {"head": "\033[1;32m", "green": "\033[32m", "red": "\033[31m",
                 "amber": "\033[33m", "muted": "\033[90m", "": ""}
         print()

@@ -23,7 +23,10 @@ It ships with three front ends that share one Python core:
 - **Budget AI** (ML): compares each category with what the thriftiest 25% of similar households spend.
 - **Home Plan** (ML): forecasts regional median home prices with a 95% range, then works out the down payment, the monthly savings needed, and the mortgage payment.
 - **Debt Plan**: simulates avalanche vs. snowball payoff month by month. It shows the debt-free date, total interest, payoff order, and a chart of the balance over time.
-- **Affordability check**: standard loan payment formula against the 36% debt-to-income rule.
+- **Affordability check**: judges a loan against your whole budget with three checks: total
+  debt-to-income (existing debts plus the new loan), monthly cash flow after expenses, and a
+  guideline for the loan's purpose (e.g. car payment at most 15% of income). The result is
+  Comfortable / Tight / Not affordable, with the total interest.
 - **Finance chat**: a local LLM (Ollama + Gemma 3) that sees your real numbers. It refuses off-topic requests and falls back to an offline tip search when the model is unavailable.
 - **Tips**: TF-IDF search over 200+ curated finance Q&As.
 - **Account**: profile (age, household size, goal, risk tolerance), pay in any frequency, and password change.
@@ -184,7 +187,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-There are 63 tests, covering:
+There are 66 tests, covering:
 - **Calculations:** monthly conversion, the loan formula, and debt-payoff math checked
   against the standard amortization formula.
 - **Auth:** salted hashes, and upgrading old-style hashes.
@@ -213,7 +216,7 @@ pennypath/                   All application code
 │   ├── expenses.py          Needs/Wants model, frequency → monthly conversion
 │   ├── accounts.py          Savings / checking / wage account balances
 │   ├── wages.py             Weekly wage
-│   ├── affordability.py     Loan payment formula + 36% rule
+│   ├── affordability.py     Loan payment formula + budget-aware affordability checks
 │   └── debt_planner.py      Avalanche / snowball simulation
 ├── ml/
 │   ├── budget.py            Budget AI: quantile regression, model selection, report

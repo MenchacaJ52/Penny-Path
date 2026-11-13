@@ -98,6 +98,8 @@ input:focus, select:focus { border-color: var(--green); }
 .exp-row-amt   { font-weight: 700; }
 .exp-row-freq  { color: var(--muted); font-size: 12px; }
 .exp-row-editing { outline: 1px solid var(--green); }
+.af-check { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); }
+.af-icon  { font-weight: 700; width: 16px; flex-shrink: 0; }
 .exp-row-actions { display: flex; gap: 4px; margin-left: 14px; }
 .icon-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px;
             width: 30px; height: 30px; cursor: pointer; font-size: 14px; }
@@ -261,9 +263,9 @@ input:focus, select:focus { border-color: var(--green); }
     <div class="onb-sub">Let's set up your financial profile. This takes less than a minute.</div>
     <div class="field">
       <div class="onb-step">STEP 1 OF 3</div>
-      <label>Weekly Income ($)</label>
+      <label>Weekly Take-Home Pay ($)</label>
       <input type="number" id="onb-wage" placeholder="e.g. 800" min="0.01" step="0.01">
-      <div class="mu" style="font-size:11px;margin-top:4px">Your gross weekly take-home pay.</div>
+      <div class="mu" style="font-size:11px;margin-top:4px">What actually lands in your bank account each week, after taxes.</div>
     </div>
     <div class="field">
       <div class="onb-step">STEP 2 OF 3</div>
@@ -326,6 +328,7 @@ input:focus, select:focus { border-color: var(--green); }
         <div class="bbar">
           <div class="bbar-seg" id="b-needs" style="background:var(--amber)"></div>
           <div class="bbar-seg" id="b-wants" style="background:var(--red)"></div>
+          <div class="bbar-seg" id="b-debt" style="background:var(--purple)"></div>
           <div class="bbar-seg" id="b-saved" style="background:var(--green)"></div>
         </div>
         <div class="bbar-legend" id="d-legend"></div>
@@ -369,13 +372,26 @@ input:focus, select:focus { border-color: var(--green); }
     <!-- ── Affordability ──────────────────────────────── -->
     <div id="page-affordability" hidden>
       <div class="page-title">Affordability Check</div>
-      <div class="page-sub">Find out if you can handle that loan.</div>
+      <div class="page-sub">Checks a loan against your whole budget: your expenses and the debts you already have.</div>
       <div class="divider"></div>
-      <div class="card" style="max-width:440px">
-        <div class="field"><label>Monthly Income ($)</label><input type="number" id="af-inc" placeholder="0.00"></div>
-        <div class="field"><label>Loan / Item Price ($)</label><input type="number" id="af-amt" placeholder="0.00"></div>
-        <div class="field"><label>Annual Interest Rate (%)</label><input type="number" id="af-rate" placeholder="6.5" step="0.1"></div>
-        <div class="field"><label>Loan Duration (months)</label><input type="number" id="af-mo" placeholder="60"></div>
+      <div class="card" style="max-width:520px">
+        <div class="field"><label>What's the loan for?</label>
+          <select id="af-purpose">
+            <option value="car">Car</option>
+            <option value="personal">Personal loan</option>
+            <option value="home">Home / mortgage</option>
+            <option value="other">Other</option>
+          </select></div>
+        <div class="form-row" style="margin-bottom:14px">
+          <div class="fg" style="flex:1"><label>Price ($)</label><input type="number" id="af-amt" placeholder="25000" min="0.01" step="0.01"></div>
+          <div class="fg" style="flex:1"><label>Down payment ($)</label><input type="number" id="af-down" placeholder="0" min="0" step="0.01"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:14px">
+          <div class="fg" style="flex:1"><label>Annual interest rate (%)</label><input type="number" id="af-rate" placeholder="6.5" step="0.1" min="0"></div>
+          <div class="fg" style="flex:1"><label>Loan length (months)</label><input type="number" id="af-mo" placeholder="60" min="1" max="600"></div>
+        </div>
+        <div class="field"><label>Monthly take-home income ($)</label><input type="number" id="af-inc" placeholder="0.00" min="0.01" step="0.01"></div>
+        <div class="mu" style="font-size:12px;margin:-6px 0 12px" id="af-budget-note"></div>
         <div class="err" id="af-err"></div>
         <button class="btn btn-green btn-full" onclick="checkAffordability()">Check Affordability</button>
       </div>
@@ -768,17 +784,20 @@ async function loadDashboard() {
   document.getElementById('d-needs').textContent    = fmt(d.needs_total);
   document.getElementById('d-wants').textContent    = fmt(d.wants_total);
 
-  const total = d.needs_total + d.wants_total;
+  const total = d.needs_total + d.wants_total + (d.debt_payments || 0);
   const denom = income > 0 ? income : Math.max(total, 1);
   const np = Math.min(d.needs_total / denom * 100, 100);
   const wp = Math.min(d.wants_total / denom * 100, 100 - np);
   document.getElementById('b-needs').style.width = np + '%';
   document.getElementById('b-wants').style.width = wp + '%';
-  document.getElementById('b-saved').style.width = Math.max(0, 100 - np - wp) + '%';
+  const dp = Math.min((d.debt_payments || 0) / denom * 100, Math.max(0, 100 - np - wp));
+  document.getElementById('b-debt').style.width = dp + '%';
+  document.getElementById('b-saved').style.width = Math.max(0, 100 - np - wp - dp) + '%';
 
   const saved = income - total;
   document.getElementById('d-legend').textContent =
-    `Needs  ${fmt(d.needs_total)}   |   Wants  ${fmt(d.wants_total)}   |   Saved  ${fmt(saved)}`;
+    `Needs  ${fmt(d.needs_total)}   |   Wants  ${fmt(d.wants_total)}   |   ` +
+    (d.debt_payments ? `Debt payments  ${fmt(d.debt_payments)}   |   ` : '') + `Saved  ${fmt(saved)}`;
 
   const stEl = document.getElementById('d-status');
   if (income <= 0)           { stEl.textContent = 'Set your wage to see insights.';      stEl.className = 'mu'; }
@@ -943,7 +962,13 @@ async function clearExpenses() {
 // ── Affordability ──────────────────────────────────────────────────────────────
 async function loadAffordability() {
   const d = await api('GET', '/api/session');
-  if (d.wage > 0) document.getElementById('af-inc').value = (d.wage * 52 / 12).toFixed(2);
+  if (d.wage > 0 && !document.getElementById('af-inc').value)
+    document.getElementById('af-inc').value = (d.wage * 52 / 12).toFixed(2);
+  const spend = d.needs_total + d.wants_total;
+  document.getElementById('af-budget-note').textContent =
+    `Also counted: your ${fmt(spend)}/mo of expenses` +
+    (d.debt_payments ? ` and ${fmt(d.debt_payments)}/mo of existing debt payments (from the Debt Plan).`
+                     : '. Add your debts on the Debt Plan page so their payments are counted too.');
 }
 
 async function checkAffordability() {
@@ -955,16 +980,26 @@ async function checkAffordability() {
       amount: parseFloat(document.getElementById('af-amt').value),
       rate:   parseFloat(document.getElementById('af-rate').value),
       months: parseInt(document.getElementById('af-mo').value),
+      down_payment: parseFloat(document.getElementById('af-down').value) || 0,
+      purpose: document.getElementById('af-purpose').value,
     });
-    const color = d.affordable ? 'var(--green)' : 'var(--red)';
+    const V = {
+      comfortable:    ['var(--green)', '✓ Comfortable', 'This loan fits your budget.'],
+      tight:          ['var(--amber)', '⚠ Tight', 'Affordable on paper, but it leaves little room.'],
+      not_affordable: ['var(--red)',   '✗ Not affordable', "With your current budget, you'd struggle to make this payment."],
+    }[d.verdict];
+    const ICON = {pass: ['✓', 'g'], warn: ['⚠', 'a'], fail: ['✗', 'r']};
     document.getElementById('af-result').innerHTML = `
-      <div class="card" style="max-width:440px;margin-top:16px">
-        <div style="font-size:18px;font-weight:700;color:${color};margin-bottom:12px">
-          ${d.affordable ? '✓  You can afford this loan!' : '✗  Cannot afford this loan.'}
-        </div>
-        <div class="res-row"><span class="res-label">Monthly Payment</span><span style="font-weight:700;color:${color}">${fmt(d.monthly_payment)}</span></div>
-        <div class="res-row"><span class="res-label">Max Allowable (36% rule)</span><span>${fmt(d.max_allowable)}</span></div>
-        <div class="res-row"><span class="res-label">Your Monthly Income</span><span>${fmt(d.income)}</span></div>
+      <div class="card" style="max-width:520px;margin-top:16px">
+        <div style="font-size:20px;font-weight:700;color:${V[0]}">${V[1]}</div>
+        <div class="mu" style="margin-bottom:12px">${V[2]}</div>
+        <div class="res-row"><span class="res-label">Monthly payment</span><span style="font-weight:700">${fmt(d.monthly_payment)}</span></div>
+        <div class="res-row"><span class="res-label">Amount borrowed</span><span>${fmt(d.principal)}</span></div>
+        <div class="res-row"><span class="res-label">Total interest</span><span class="r">${fmt(d.total_interest)}</span></div>
+        <div class="res-row"><span class="res-label">Left over each month</span><span class="${d.left_over < 0 ? 'r' : 'g'}">${d.left_over < 0 ? '-' : ''}${fmt(Math.abs(d.left_over))}</span></div>
+        <div style="font-weight:600;margin:14px 0 6px">Checks</div>
+        ${d.checks.map(c => `<div class="af-check"><span class="${ICON[c.status][1]} af-icon">${ICON[c.status][0]}</span>
+          <div><div style="font-weight:600">${esc(c.name)}</div><div class="mu" style="font-size:12px">${esc(c.detail)}</div></div></div>`).join('')}
       </div>`;
   } catch(e) { errEl.textContent = e.message; }
 }
@@ -993,6 +1028,8 @@ async function runAdvisor() {
         <tbody>
           ${row('Needs',   r.rec_needs,   r.actual_needs,   r.base_needs)}
           ${row('Wants',   r.rec_wants,   r.actual_wants,   r.base_wants)}
+          ${r.debt_payments ? `<tr><td>Debt payments <span class="mu" style="font-size:11px">(not in peer data)</span></td>
+            <td class="num mu">—</td><td class="num mu">—</td><td class="num">${fmt(r.debt_payments)}</td></tr>` : ''}
           ${row('Savings', r.rec_savings, r.actual_savings, r.base_savings, true)}
         </tbody>
       </table>`;
@@ -1011,7 +1048,9 @@ async function runAdvisor() {
     const insights = [];
     if (r.actual_needs > r.rec_needs) insights.push(['r', `Needs are ${fmt(r.actual_needs - r.rec_needs)} above thrifty peers.`]);
     if (r.actual_wants > r.rec_wants) insights.push(['r', `Wants are ${fmt(r.actual_wants - r.rec_wants)} above thrifty peers.`]);
-    if (r.actual_savings < r.rec_savings) insights.push(['a', `Savings are ${fmt(r.rec_savings - r.actual_savings)} below thrifty peers — try automating a recurring transfer.`]);
+    if (r.actual_savings < r.rec_savings) insights.push(['a', `Savings are ${fmt(r.rec_savings - r.actual_savings)} below thrifty peers` +
+      (r.debt_payments ? `, partly because ${fmt(r.debt_payments)}/mo goes to debt minimums — the Debt Plan shows the fastest way to free that up.`
+                       : ' — try automating a recurring transfer.')]);
     used.filter(s => s.actual > s.recommended * OVER_TOLERANCE && s.tip)
         .forEach(s => insights.push(['a', `${cap(s.subcategory)}: ${fmt(s.actual - s.recommended)} over. ${esc(s.tip)}`]));
     if (!insights.length) insights.push(['g', "You're at or below thrifty peers in every category — great job!"]);

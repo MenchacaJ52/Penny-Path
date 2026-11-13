@@ -12,7 +12,8 @@ from tkinter import ttk, messagebox
 
 from pennypath import auth
 from pennypath.assistant import chat_guard
-from pennypath.finance.affordability     import check as loan_check
+from pennypath.finance.affordability     import (PURPOSES as AFFORD_PURPOSES, VERDICT_TEXT as
+                                              AFFORD_VERDICT_TEXT, assess as assess_loan)
 from pennypath.database          import Database, DatabaseNotConfigured
 from pennypath.finance.accounts         import SavingsAccount, CheckingAccount, WageAccount
 from pennypath.finance.wages             import Wages
@@ -491,11 +492,13 @@ class DashboardPage(PageBase):
         if ww: self._bbar.create_rectangle(nw, 0, nw + ww,  22, fill=C["red"],   outline="")
         if sw: self._bbar.create_rectangle(nw + ww, 0, W,   22, fill=C["green"], outline="")
 
-        saved = income - total_exp
+        debt_pay = a.db.load_debt_payments(a.current_user["id"]) if a.current_user else 0.0
+        saved = income - total_exp - debt_pay
         self._bbar_leg.config(
             text=f"Needs  ${a.necessary_total:,.0f}   |   "
                  f"Wants  ${a.nonnecessary_total:,.0f}   |   "
-                 f"Saved  ${saved:,.0f}")
+                 + (f"Debt payments  ${debt_pay:,.0f}   |   " if debt_pay else "")
+                 + f"Saved  ${saved:,.0f}")
 
         if income <= 0:
             st, sc = "Set your wage to see insights.", C["muted"]
@@ -835,7 +838,7 @@ class WagesPage(PageBase):
 class AffordabilityPage(PageBase):
     def __init__(self, parent, app):
         super().__init__(parent, app, "Affordability Check",
-                         "Find out if you can handle that loan.")
+                         "Checks a loan against your expenses and existing debts.")
         self._build()
 
     def _build(self):
@@ -844,11 +847,15 @@ class AffordabilityPage(PageBase):
         form = tk.Frame(b, bg=C["card"], padx=28, pady=24)
         form.pack(fill="x", padx=32, pady=(0, 16))
 
+        Lbl(form, "What's the loan for?", "small", C["muted"], anchor="w").pack(fill="x", pady=(8, 2))
+        self._purpose_v = tk.StringVar(value="car")
+        _styled_combo(form, self._purpose_v, list(AFFORD_PURPOSES), width=24).pack(fill="x", pady=(0, 4))
         fields_cfg = [
-            ("Monthly Income ($)",       "_inc_e",  False),
-            ("Item / Loan Price ($)",     "_ammt_e", False),
-            ("Annual Interest Rate (%)",  "_rate_e", False),
-            ("Loan Duration (months)",    "_mnth_e", False),
+            ("Price ($)",                    "_ammt_e", False),
+            ("Down Payment ($)",             "_down_e", False),
+            ("Annual Interest Rate (%)",     "_rate_e", False),
+            ("Loan Duration (months)",       "_mnth_e", False),
+            ("Monthly Take-Home Income ($)", "_inc_e",  False),
         ]
         for lbl, attr, _ in fields_cfg:
             Lbl(form, lbl, "small", C["muted"], anchor="w").pack(
@@ -871,36 +878,46 @@ class AffordabilityPage(PageBase):
             ammt = float(self._ammt_e.get())
             rate = float(self._rate_e.get())
             mnth = int(self._mnth_e.get())
-            if inc <= 0 or ammt <= 0 or rate < 0 or not 1 <= mnth <= 600:
+            down = float(self._down_e.get() or 0)
+            if inc <= 0 or ammt <= 0 or rate < 0 or not 1 <= mnth <= 600 or not 0 <= down < ammt:
                 raise ValueError
         except ValueError:
             Lbl(self._result_f,
-                "Enter positive numbers (loan length 1–600 months).",
+                "Enter positive numbers (loan length 1–600 months, down payment below the price).",
                 "body", C["red"]).pack(anchor="w", pady=8)
             return
 
-        r = loan_check(inc, ammt, rate, mnth)
-        monthly, max_pay, ok = r["monthly_payment"], r["max_allowable"], r["affordable"]
+        a = self._app
+        debt_pay = a.db.load_debt_payments(a.current_user["id"]) if a.current_user else 0.0
+        r = assess_loan(inc, ammt, rate, mnth, down_payment=down,
+                        monthly_expenses=a.necessary_total + a.nonnecessary_total,
+                        existing_debt_payments=debt_pay, purpose=self._purpose_v.get())
 
         card = tk.Frame(self._result_f, bg=C["card"], padx=24, pady=20)
         card.pack(fill="x")
-
-        color = C["green"] if ok else C["red"]
-        icon  = "  You can afford this loan!" if ok else "  Cannot afford this loan."
-        Lbl(card, icon, "h2", color).pack(anchor="w")
+        color = {"comfortable": C["green"], "tight": C["amber"],
+                 "not_affordable": C["red"]}[r["verdict"]]
+        Lbl(card, AFFORD_VERDICT_TEXT[r["verdict"]], "h2", color).pack(anchor="w")
         _divider(card, pady=10)
 
-        rows = [
-            ("Monthly Payment",           f"${monthly:,.2f}"),
-            ("Max Allowable (36% rule)",  f"${max_pay:,.2f}"),
-            ("Your Monthly Income",       f"${inc:,.2f}"),
-        ]
-        for lbl, val in rows:
-            r = tk.Frame(card, bg=C["card"])
-            r.pack(fill="x", pady=3)
-            Lbl(r, lbl, fg=C["muted"]).pack(side="left")
-            Lbl(r, val, "h3",
-                color if "Payment" in lbl else C["text"]).pack(side="right")
+        left = r["left_over"]
+        for lbl, val in [
+            ("Monthly Payment",      f"${r['monthly_payment']:,.2f}"),
+            ("Total Interest",       f"${r['total_interest']:,.2f}"),
+            ("Left Over Each Month", f"{'-' if left < 0 else ''}${abs(left):,.2f}"),
+        ]:
+            row = tk.Frame(card, bg=C["card"])
+            row.pack(fill="x", pady=3)
+            Lbl(row, lbl, fg=C["muted"]).pack(side="left")
+            Lbl(row, val, "h3").pack(side="right")
+
+        _divider(card, pady=8)
+        icon = {"pass": ("✓", C["green"]), "warn": ("⚠", C["amber"]), "fail": ("✗", C["red"])}
+        for c in r["checks"]:
+            sym, col = icon[c["status"]]
+            Lbl(card, f"{sym}  {c['name']}", "h3", col).pack(anchor="w", pady=(6, 0))
+            Lbl(card, c["detail"], "small", C["muted"], wraplength=520,
+                justify="left").pack(anchor="w")
 
     def refresh(self):
         inc = _monthly(self._app.wages.weekly_wage)
@@ -953,7 +970,8 @@ class BudgetAIPage(PageBase):
 
         prof = a.db.load_profile(a.current_user["id"])
         rec = a.advisor.recommend(income, a.necessary_total, a.nonnecessary_total, a.expenses,
-                                  household_size=prof["household_size"], age=prof["age"])
+                                  household_size=prof["household_size"], age=prof["age"],
+                                  debt_payments=a.db.load_debt_payments(a.current_user["id"]))
         if not rec:
             self._write("Could not generate recommendation.\n", "red")
             self._out.config(state="disabled")
