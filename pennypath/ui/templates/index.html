@@ -730,9 +730,12 @@ function showApp() {
   document.getElementById('app').hidden = false;
   document.getElementById('chat-fab').hidden = false;
   document.getElementById('sb-user').textContent = '@' + user.username;
+  // Don't leave the password sitting in the (now hidden) login form.
+  ['a-pass', 'a-conf'].forEach(id => document.getElementById(id).value = '');
   navigate('dashboard');
-  appendChatMsg('ai', 'PennyPath AI',
-    "Hey! I'm your AI finance assistant. Ask me anything about budgeting, saving, or debt — I'll personalise advice based on your real numbers!");
+  if (!document.getElementById('chat-messages').childElementCount)   // greet once per session
+    appendChatMsg('ai', 'PennyPath AI',
+      "Hey! I'm your AI finance assistant. Ask me anything about budgeting, saving, or debt — I'll personalise advice based on your real numbers!");
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
@@ -1462,9 +1465,11 @@ async function sendChat() {
 
 // ── Keyboard shortcuts ─────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.getElementById('auth').style.display !== 'none') submitAuth();
-  if (e.key === 'Enter' && !document.getElementById('onboarding').hidden) submitOnboarding();
-  if (e.key === 'Enter' && !e.shiftKey && chatOpen && document.activeElement.id === 'chat-input') {
+  if (e.key !== 'Enter') return;
+  // Screens are hidden with the `hidden` attribute, so check that (not style.display).
+  if (!document.getElementById('auth').hidden) { submitAuth(); return; }
+  if (!document.getElementById('onboarding').hidden) { submitOnboarding(); return; }
+  if (!e.shiftKey && chatOpen && document.activeElement.id === 'chat-input') {
     e.preventDefault(); sendChat();
   }
 });
